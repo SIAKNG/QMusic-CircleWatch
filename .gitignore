@@ -1,0 +1,16 @@
+.gradle/
+gradle-agent-home/
+.kotlin/
+.idea/
+.robo-deps/
+.robo-home/
+local.properties
+release-signing.properties
+**/build/
+*.jks
+*.keystore
+*.key
+*.pem
+*.p12
+*.apk
+*.aab

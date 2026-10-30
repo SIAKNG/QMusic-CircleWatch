@@ -1,0 +1,65 @@
+package com.ronan.qmusicwatch
+
+import androidx.compose.ui.unit.dp
+import com.ronan.qmusicwatch.ui.WatchUiSize
+import com.ronan.qmusicwatch.ui.WatchWindowClass
+import com.ronan.qmusicwatch.ui.resolveWatchDimensions
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class WatchDesignTest {
+    @Test fun compact480PixelWatchUses240DpTokens() {
+        val dimensions = resolveWatchDimensions(240.dp, WatchUiSize.Compact)
+
+        assertEquals(WatchWindowClass.Compact, dimensions.windowClass)
+        assertEquals(8.dp, dimensions.screenPadding)
+        assertEquals(46.dp, dimensions.trackRowHeight)
+        assertEquals(40.dp, dimensions.searchHeight)
+        assertEquals(48.dp, dimensions.miniPlayerHeight)
+        assertEquals(13f, dimensions.bodySp)
+        assertEquals(23.dp, dimensions.rowCornerRadius)
+        assertEquals(20.dp, dimensions.searchCornerRadius)
+        assertEquals(36.dp, dimensions.playerActionSize)
+    }
+
+    @Test fun largerUiModesScaleWithoutChangingWindowClass() {
+        val compact = resolveWatchDimensions(320.dp, WatchUiSize.Compact)
+        val large = resolveWatchDimensions(320.dp, WatchUiSize.Large)
+
+        assertEquals(WatchWindowClass.Medium, compact.windowClass)
+        assertEquals(WatchWindowClass.Medium, large.windowClass)
+        assertTrue(large.trackRowHeight > compact.trackRowHeight)
+        assertTrue(large.bodySp > compact.bodySp)
+    }
+
+    @Test fun roundWatchUsesInsetAwareTokens() {
+        val square = resolveWatchDimensions(240.dp, WatchUiSize.Compact, isRound = false)
+        val round = resolveWatchDimensions(240.dp, WatchUiSize.Compact, isRound = true)
+
+        assertTrue(round.isRound)
+        assertTrue(round.screenPadding > square.screenPadding)
+        assertTrue(round.topSafeInset > square.topSafeInset)
+        assertEquals(square.trackRowHeight, round.trackRowHeight)
+        assertEquals(.82f, round.miniPlayerWidthFraction)
+        assertEquals(58.dp, round.miniPlayerHeight)
+        assertEquals(1f, square.miniPlayerWidthFraction)
+    }
+
+    @Test fun swipeBackAcceptsLeftwardGestureAndLeftEdgeBackGesture() {
+        assertTrue(shouldTriggerSwipeBack(-70f, 120f, 48f, 54f))
+        assertTrue(shouldTriggerSwipeBack(70f, 20f, 48f, 54f))
+    }
+
+    @Test fun swipeBackRejectsShortOrMiddleRightwardGesture() {
+        assertTrue(!shouldTriggerSwipeBack(-40f, 120f, 48f, 54f))
+        assertTrue(!shouldTriggerSwipeBack(70f, 120f, 48f, 54f))
+    }
+
+    @Test fun storedUiSizeFallsBackToCompact() {
+        assertEquals(WatchUiSize.Compact, WatchUiSize.fromStored(null))
+        assertEquals(WatchUiSize.Compact, WatchUiSize.fromStored("phone"))
+        assertEquals(WatchUiSize.Standard, WatchUiSize.fromStored("standard"))
+        assertEquals(WatchUiSize.Large, WatchUiSize.fromStored("large"))
+    }
+}

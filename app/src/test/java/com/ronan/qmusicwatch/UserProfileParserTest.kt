@@ -1,0 +1,81 @@
+package com.ronan.qmusicwatch
+
+import com.ronan.qmusicwatch.network.mergeUserProfiles
+import com.ronan.qmusicwatch.network.parseUserProfile
+import com.ronan.qmusicwatch.network.profileEpoch
+import com.ronan.qmusicwatch.model.UserProfile
+import kotlinx.serialization.json.Json
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class UserProfileParserTest {
+    @Test fun parsesNicknameAndProtocolRelativeAvatar() {
+        val avatar = "https://q1.qlogo.cn/g?b=qq&nk=12345&s=140"
+        val profile = parseUserProfile(Json.parseToJsonElement("""{"creator":{"nick":"Ronan","logo":"$avatar"},"greenVip":{"isVip":0},"superVip":{"isSVip":1,"vipEndTime":1893456000}}"""))!!
+        assertEquals("Ronan", profile.displayName)
+        assertEquals(avatar, profile.avatarUrl)
+        assertEquals(true, profile.isVip)
+        assertEquals(1893456000L, profile.vipExpireAt)
+        assertEquals("超级会员（SVIP）", profile.vipName)
+    }
+
+    @Test fun ignoresSongVipFlagsWhenParsingAccount() {
+        val profile = parseUserProfile(Json.parseToJsonElement("""{"info":{"nick":"Ronan","logo":"https://q1.qlogo.cn/g?b=qq&nk=12345&s=140"},"song":{"title":"测试歌曲","isVip":0}}"""))!!
+        assertEquals(null, profile.isVip)
+    }
+
+    @Test fun readsWechatAvatarFieldsAndPrefersAccountAvatarOverPlaceholder() {
+        val avatar = "https://thirdwx.qlogo.cn/mmopen/abc123/132"
+        val wechat = parseUserProfile(Json.parseToJsonElement("""{"profile":{"nickname":"Ronan","headimgurl":"$avatar"}}"""))!!
+        assertEquals(avatar, wechat.avatarUrl)
+
+        val merged = mergeUserProfiles(listOf(
+            UserProfile(displayName = "Ronan"),
+            wechat,
+        ))!!
+        assertEquals(avatar, merged.avatarUrl)
+    }
+
+    @Test fun parsesDedicatedVipResponse() {
+        val profile = parseUserProfile(Json.parseToJsonElement("""{"vip_info":{"vip_type":11,"vip_name":"超级会员","expire_date":"20990722"}}"""))!!
+        assertEquals(true, profile.isVip)
+        assertEquals("超级会员（SVIP）", profile.vipName)
+        assertEquals(profileEpoch("2099-07-22"), profile.vipExpireAt)
+    }
+
+    @Test fun parsesRealVipLoginBaseShape() {
+        val profile = parseUserProfile(Json.parseToJsonElement("""{"vip_response":{"svip":1,"identity":{"vip":1,"HugeVip":1,"HugeVipEnd":"2026-07-22 23:59:59","LMFlag":1,"LMEnd":"2026-07-22 23:59:59"},"userinfo":{"expire":9,"music_level":8}}}"""))!!
+        assertEquals(true, profile.isVip)
+        assertEquals("超级会员（SVIP）", profile.vipName)
+        assertEquals(profileEpoch("2026-07-22 23:59:59"), profile.vipExpireAt)
+    }
+
+    @Test fun doesNotTreatVipExpireCounterAsUnixTimestamp() {
+        val profile = parseUserProfile(Json.parseToJsonElement("""{"vip_response":{"svip":1,"userinfo":{"expire":9}}}"""))!!
+        assertEquals(true, profile.isVip)
+        assertEquals(null, profile.vipExpireAt)
+    }
+
+    @Test fun inactiveSuperVipDoesNotOverrideActiveGreenMembership() {
+        val profile = parseUserProfile(Json.parseToJsonElement("""{"superVip":{"isSVip":0,"vipEndTime":2051222400},"greenVip":{"isVip":1,"vipEndTime":1893456000}}"""))!!
+        assertEquals("豪华绿钻", profile.vipName)
+        assertEquals(1893456000L, profile.vipExpireAt)
+    }
+
+    @Test fun mergedMembershipKeepsTypeAndExpiryFromSameHighestTier() {
+        val merged = mergeUserProfiles(listOf(
+            UserProfile(displayName = "Ronan", isVip = true, vipExpireAt = 1893456000, vipName = "豪华绿钻"),
+            UserProfile(isVip = true, vipExpireAt = 1800000000, vipName = "超级会员（SVIP）"),
+        ))!!
+        assertEquals("超级会员（SVIP）", merged.vipName)
+        assertEquals(1800000000L, merged.vipExpireAt)
+    }
+
+    @Test fun preservesDateTimeAndNormalizesEpochUnits() {
+        val exact = profileEpoch("2026-07-22 23:59:59")!!
+        val midnight = profileEpoch("2026-07-22")!!
+        assertEquals(23 * 60 * 60 + 59 * 60 + 59, exact - midnight)
+        assertEquals(exact, profileEpoch((exact * 1_000L).toString()))
+        assertEquals(exact, profileEpoch("2026-07-22T23:59:59+08:00"))
+    }
+}
