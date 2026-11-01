@@ -1,5 +1,5 @@
 <resources>
-    <style name="Theme.QMusicWatch" parent="android:style/Theme.Material.NoActionBar">
+    <style name="Theme.QMusicWatch" parent="HeytapTheme">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">#050505</item>

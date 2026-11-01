@@ -24,3 +24,11 @@ These projects informed behavior, product research, or compatible protocol imple
 
 Runtime dependencies keep their original licenses. Gradle and npm lock files
 are the authoritative dependency lists for a particular release.
+
+## QMusic-CircleWatch private adaptation dependency
+
+`app/libs/heytap-widget-v7.0.18.aar` is the OPPO/HeyTap public-widget binary
+provided by the project owner for this circular-watch adaptation. It is
+included in this private review repository to reproduce the build. It is not
+relicensed under the project's Apache-2.0 license; original vendor rights
+remain applicable. Recheck redistribution terms before any public release.

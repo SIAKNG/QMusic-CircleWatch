@@ -39,15 +39,15 @@ class WatchDesignTest {
 
         assertTrue(round.isRound)
         assertTrue(round.screenPadding > square.screenPadding)
-        assertTrue(round.topSafeInset > square.topSafeInset)
-        assertEquals(square.trackRowHeight, round.trackRowHeight)
-        assertEquals(.82f, round.miniPlayerWidthFraction)
-        assertEquals(58.dp, round.miniPlayerHeight)
+        assertEquals(0.dp, round.topSafeInset)
+        assertTrue(round.trackRowHeight > square.trackRowHeight)
+        assertEquals(.62f, round.miniPlayerWidthFraction)
+        assertEquals(48.dp, round.miniPlayerHeight)
         assertEquals(1f, square.miniPlayerWidthFraction)
     }
 
-    @Test fun swipeBackAcceptsLeftwardGestureAndLeftEdgeBackGesture() {
-        assertTrue(shouldTriggerSwipeBack(-70f, 120f, 48f, 54f))
+    @Test fun swipeBackAcceptsOnlyRightwardBackGestureFromTheEdge() {
+        assertTrue(!shouldTriggerSwipeBack(-70f, 120f, 48f, 54f))
         assertTrue(shouldTriggerSwipeBack(70f, 20f, 48f, 54f))
     }
 

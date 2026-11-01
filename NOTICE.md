@@ -22,3 +22,7 @@ The expressive media controls include code adapted from Google Horologist
 media-ui-material3, Copyright 2025 The Android Open Source Project, licensed
 under the Apache License 2.0. The adapted implementation was modified for a
 full-Android API 24 square-watch client; its source header is retained.
+
+QMusic-CircleWatch
+Secondary development and OPPO circular-watch adaptations, 2026 SIAKNG.
+Based on huanghao897/QMusicWatch; the upstream copyright and notices above are retained.

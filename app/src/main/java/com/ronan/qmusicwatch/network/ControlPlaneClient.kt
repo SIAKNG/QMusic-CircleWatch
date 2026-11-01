@@ -70,6 +70,10 @@ class ControlPlaneClient(
     fun trustedDownloadUrl(value: String): Boolean = isTrustedControlDownloadUrl(value, baseUrl)
 
     suspend fun latestRelease(): ControlUpdate {
+        // This derivative has its own application ID and signer. Upstream APKs cannot update it.
+        if (!BuildConfig.QMUSIC_UPDATES_ENABLED) return ControlUpdate(
+            versionCode = BuildConfig.VERSION_CODE, versionName = BuildConfig.VERSION_NAME,
+        )
         val url = endpoint("api/qmusic-watch/update").newBuilder()
             .addQueryParameter("versionCode", BuildConfig.VERSION_CODE.toString())
             .addQueryParameter("versionName", BuildConfig.VERSION_NAME)

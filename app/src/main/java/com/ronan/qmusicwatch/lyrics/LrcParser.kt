@@ -9,7 +9,19 @@ data class LyricLine(
 fun activeLyricIndex(lines: List<LyricLine>, positionMs: Long): Int =
     lines.indexOfLast { it.timeMs >= 0 && it.timeMs <= positionMs }
 
-fun lyricRenderProgress(line: LyricLine, positionMs: Long, nextLineTimeMs: Long): Float {
+fun hasWordTiming(line: LyricLine): Boolean = line.words.isNotEmpty() &&
+    line.words.joinToString("") { it.text } == line.text &&
+    line.words.all { it.startMs >= 0 && it.durationMs > 0 } &&
+    line.words.zipWithNext().all { (a, b) -> b.startMs >= a.startMs }
+
+/** No inferred line-duration sweep: LRC-only lines use whole-line emphasis. */
+fun lyricRenderProgress(line: LyricLine, positionMs: Long): Float? {
+    if (!hasWordTiming(line)) return null
+    return timedLyricProgress(line, positionMs)
+}
+
+/** Timing was validated when the active line entered the renderer. */
+internal fun timedLyricProgress(line: LyricLine, positionMs: Long): Float {
     if (line.text.isEmpty() || positionMs <= line.timeMs) return 0f
     if (line.words.isNotEmpty()) {
         var completedCharacters = 0f
@@ -27,12 +39,12 @@ fun lyricRenderProgress(line: LyricLine, positionMs: Long, nextLineTimeMs: Long)
         }
         return (completedCharacters / line.text.length).coerceIn(0f, 1f)
     }
-    val duration = (nextLineTimeMs - line.timeMs).coerceIn(1_000, 8_000)
-    return ((positionMs - line.timeMs).toFloat() / duration).coerceIn(0f, 1f)
+    return 1f
 }
 
-fun highlightedCharacters(line: LyricLine, positionMs: Long, nextLineTimeMs: Long): Int =
-    kotlin.math.ceil(line.text.length * lyricRenderProgress(line, positionMs, nextLineTimeMs))
+fun highlightedCharacters(line: LyricLine, positionMs: Long): Int =
+    kotlin.math.ceil(line.text.length * (lyricRenderProgress(line, positionMs)
+        ?: if (positionMs >= line.timeMs) 1f else 0f))
         .toInt().coerceIn(0, line.text.length)
 
 object LrcParser {

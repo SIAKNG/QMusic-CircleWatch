@@ -6,6 +6,7 @@ import com.ronan.qmusicwatch.lyrics.activeLyricIndex
 import com.ronan.qmusicwatch.lyrics.lyricRenderProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LrcParserTest {
@@ -50,16 +51,16 @@ class LrcParserTest {
         val lines = LrcParser.parse("[00:01]你好", wordSync = "[1000,1000]你(1000,400)好(1400,600)")
         assertEquals("你好", lines.single().text)
         assertEquals(2, lines.single().words.size)
-        assertEquals(1, highlightedCharacters(lines.single(), 1_200, 2_000))
-        assertEquals(2, highlightedCharacters(lines.single(), 1_450, 2_000))
-        assertEquals(0.25f, lyricRenderProgress(lines.single(), 1_200, 2_000), 0.001f)
-        assertEquals(0.541f, lyricRenderProgress(lines.single(), 1_450, 2_000), 0.001f)
+        assertEquals(1, highlightedCharacters(lines.single(), 1_200))
+        assertEquals(2, highlightedCharacters(lines.single(), 1_450))
+        assertEquals(0.25f, lyricRenderProgress(lines.single(), 1_200)!!, 0.001f)
+        assertEquals(0.541f, lyricRenderProgress(lines.single(), 1_450)!!, 0.001f)
     }
 
-    @Test fun lrcFallsBackToEvenCharacterProgress() {
+    @Test fun lrcWithoutWordTimestampsHighlightsTheWholeLineInsteadOfGuessingProgress() {
         val line = LrcParser.parse("[00:01]四个文字").single()
-        assertEquals(2, highlightedCharacters(line, 3_000, 5_000))
-        assertEquals(0.5f, lyricRenderProgress(line, 3_000, 5_000), 0.001f)
+        assertEquals(4, highlightedCharacters(line, 3_000))
+        assertNull(lyricRenderProgress(line, 3_000))
     }
 
     @Test fun singleLineFontShrinksOnlyWhenContentExceedsAvailableWidth() {
@@ -70,5 +71,20 @@ class LrcParserTest {
 
     @Test fun invalidWordSyncMetadataDoesNotHideLrc() {
         assertEquals("歌词仍在", LrcParser.parse("[00:01]歌词仍在", wordSync = "1").single().text)
+    }
+
+    @Test fun wordTimingRespectsUnequalDurationsAndSilenceBetweenWords() {
+        val line = LrcParser.parse("", wordSync = "[1000,4000]甲(1000,100)乙(2500,1000)").single()
+        assertEquals(.5f, lyricRenderProgress(line, 2_000)!!, .001f)
+        assertEquals(.75f, lyricRenderProgress(line, 3_000)!!, .001f)
+        assertEquals(1f, lyricRenderProgress(line, 4_000)!!, .001f)
+    }
+
+    @Test fun incompleteOrInvalidWordTimingFallsBackToWholeLineHighlight() {
+        val line = com.ronan.qmusicwatch.lyrics.LyricLine(1000, "甲乙",
+            words = listOf(com.ronan.qmusicwatch.lyrics.LyricWord("甲", 1000, 100)))
+        assertNull(lyricRenderProgress(line, 1200))
+        assertNull(lyricRenderProgress(line.copy(text = "甲", words = listOf(
+            com.ronan.qmusicwatch.lyrics.LyricWord("甲", 1000, 0))), 1200))
     }
 }

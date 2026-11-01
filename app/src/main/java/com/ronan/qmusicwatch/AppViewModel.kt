@@ -871,7 +871,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             manufacturer = android.os.Build.MANUFACTURER.orEmpty().replace('\n', ' ').take(40),
             model = android.os.Build.MODEL.orEmpty().replace('\n', ' ').take(60),
             report = buildString {
-                append("QMusic Watch diagnostics\n")
+                append("QMusic-CircleWatch diagnostics\n")
                 append("version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n")
                 append("sdk=${android.os.Build.VERSION.SDK_INT}\n")
                 append("signedIn=${signedIn}\n")
@@ -993,7 +993,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) { cachedLyricsFile(path).writeText(encoded) }
             }
         }
-        return LrcParser.parse(data.original, data.translation, data.wordSync)
+        return LrcParser.parse(data.original, data.translation, data.wordSync).also { lines ->
+            AppLog.write("LYRICS", "loaded lines=${lines.size} wordTimedLines=${lines.count { com.ronan.qmusicwatch.lyrics.hasWordTiming(it) }}")
+        }
     }
     fun reloadLyrics() = viewModelScope.launch {
         val track = _state.value.currentTrack ?: return@launch

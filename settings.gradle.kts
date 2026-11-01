@@ -14,6 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "QMusicWatch"
+rootProject.name = "QMusic-CircleWatch"
 include(":app")
 

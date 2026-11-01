@@ -28,8 +28,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.ProvideTextStyle
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
@@ -44,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -104,9 +112,10 @@ fun WatchSearchField(
     onSearch: () -> Unit = {},
 ) {
     val dimensions = LocalWatchDimensions.current
+    val keyboard = LocalSoftwareKeyboardController.current
     Surface(
         modifier = modifier.height(heightOverride ?: dimensions.searchHeight),
-        shape = RoundedCornerShape(dimensions.searchCornerRadius),
+        shape = CircleShape,
         color = WatchSurface,
     ) {
         BasicTextField(
@@ -120,7 +129,7 @@ fun WatchSearchField(
             ),
             cursorBrush = SolidColor(WatchAccent),
             keyboardOptions = keyboardOptions,
-            keyboardActions = KeyboardActions(onDone = { onSearch() }),
+            keyboardActions = KeyboardActions(onDone = { keyboard?.hide(); onSearch() }, onSearch = { keyboard?.hide(); onSearch() }),
             visualTransformation = VisualTransformation.None,
             decorationBox = { innerField ->
                 Row(
@@ -165,10 +174,18 @@ fun WatchSectionHeader(
     val dimensions = LocalWatchDimensions.current
     Box(
         modifier.fillMaxWidth()
-            .height(34.dp)
-            .padding(horizontal = if (dimensions.isRound) 22.dp else 0.dp),
+            .heightIn(min = if (dimensions.isRound && action != null) 64.dp else 38.dp),
         contentAlignment = Alignment.Center,
     ) {
+        if (dimensions.isRound && action != null) {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(title, color = WatchTextPrimary, fontSize = dimensions.titleSp.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                TextButton(onClick = onAction, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)) {
+                    Text(action, fontSize = dimensions.secondarySp.sp)
+                }
+            }
+        } else {
         Text(
             title,
             Modifier.padding(horizontal = if (action == null) 8.dp else 58.dp),
@@ -193,6 +210,7 @@ fun WatchSectionHeader(
                 )
             }
         }
+        }
     }
 }
 
@@ -208,11 +226,11 @@ fun WatchListRow(
     val dimensions = LocalWatchDimensions.current
     val rowModifier = modifier
         .fillMaxWidth()
-        .height(dimensions.trackRowHeight)
-        .clip(RoundedCornerShape(dimensions.rowCornerRadius))
-        .background(WatchSurface, RoundedCornerShape(dimensions.rowCornerRadius))
+        .heightIn(min = dimensions.trackRowHeight)
+        .clip(CircleShape)
+        .background(WatchSurface, CircleShape)
         .then(if (onClick != null) Modifier.combinedClickable(onClick = onClick) else Modifier)
-        .padding(horizontal = 8.dp)
+        .padding(horizontal = if (dimensions.isRound) 12.dp else 8.dp, vertical = if (dimensions.isRound) 8.dp else 0.dp)
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
         leading?.let {
             Box(Modifier.size(dimensions.artworkSize), content = it)
@@ -224,14 +242,14 @@ fun WatchListRow(
                 color = WatchTextPrimary,
                 fontSize = dimensions.bodySp.sp,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1,
+                maxLines = if (dimensions.isRound) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (!subtitle.isNullOrBlank()) Text(
                 subtitle,
                 color = WatchTextSecondary,
                 fontSize = dimensions.secondarySp.sp,
-                maxLines = 1,
+                maxLines = if (dimensions.isRound) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -276,6 +294,35 @@ fun WatchDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        if (dimensions.isRound) {
+            BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).imePadding(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier.fillMaxWidth().fillMaxHeight(.70f).padding(horizontal = maxWidth * .12f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    icon?.invoke()
+                    title?.let {
+                        ProvideTextStyle(TextStyle(color = WatchTextPrimary, fontSize = dimensions.titleSp.sp, fontWeight = FontWeight.SemiBold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)) {
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { it() }
+                        }
+                    }
+                    text?.let {
+                        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                            ProvideTextStyle(TextStyle(fontSize = dimensions.secondarySp.sp, color = WatchTextSecondary)) { it() }
+                        }
+                    } ?: Spacer(Modifier.weight(1f))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        dismissButton?.invoke()
+                        confirmButton()
+                    }
+                }
+                OppoRoundClock(Modifier.align(Alignment.TopCenter))
+            }
+            return@Dialog
+        }
         BoxWithConstraints(
             Modifier.fillMaxSize().padding(dimensions.screenPadding),
             contentAlignment = Alignment.Center,
@@ -329,7 +376,7 @@ fun WatchSelectionDialog(
             val horizontalInset = if (dimensions.isRound) maxWidth * .12f else dimensions.screenPadding
             val topInset = if (dimensions.isRound) maxHeight * .21f else 42.dp
             val bottomInset = if (dimensions.isRound) maxHeight * .12f else 8.dp
-            LazyColumn(
+            WatchLazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = horizontalInset,
@@ -380,8 +427,8 @@ fun WatchSelectionRow(
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.fillMaxWidth().height(40.dp),
-        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = if (LocalWatchDimensions.current.isRound) 56.dp else 40.dp),
+        shape = CircleShape,
         color = if (selected) WatchTextPrimary.copy(alpha = .13f) else WatchSurface,
         tonalElevation = 0.dp,
     ) {
@@ -393,9 +440,9 @@ fun WatchSelectionRow(
                 text = title,
                 modifier = Modifier.weight(1f),
                 color = WatchTextPrimary.copy(alpha = if (enabled) 1f else .38f),
-                fontSize = 12.sp,
+                fontSize = LocalWatchDimensions.current.bodySp.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
+                maxLines = if (LocalWatchDimensions.current.isRound) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (selected || !enabled) {

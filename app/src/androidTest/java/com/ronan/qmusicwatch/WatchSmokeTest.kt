@@ -18,7 +18,7 @@ class WatchSmokeTest {
 
     @Test fun mainWatchSurfaceFitsAndCanDismissTheNotice() {
         runCatching { compose.onNodeWithText("我知道了").performClick() }
-        compose.onNodeWithText("QMusic").assertIsDisplayed()
+        compose.onNodeWithText("QMusic-CircleWatch").assertIsDisplayed()
         val screenshot = compose.onRoot().captureToImage()
         assertTrue(screenshot.width > 0)
         assertTrue(screenshot.height > 0)

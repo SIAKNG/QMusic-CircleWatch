@@ -14,3 +14,14 @@ release-signing.properties
 *.p12
 *.apk
 *.aab
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# Local capture and publication workspace
+*.log
+.env
+.env.*
+.screenshots-raw/
+__pycache__/
+*.pyc

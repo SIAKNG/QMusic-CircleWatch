@@ -10,7 +10,7 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
 }
 
-val expectedReleaseCertificateSha256 = "fbd5642c3c1b5882545f6f1227cf2dc38a54bcd18609203935eedbef408d1382"
+val expectedReleaseCertificateSha256 = "35c97202a545d2886448892d005a1754857b0951a1dff7849856d9d31a4e8dcd"
 val releaseSigningProperties = Properties()
 val releaseSigningPropertiesFile = rootProject.file("release-signing.properties")
 if (releaseSigningPropertiesFile.isFile) {
@@ -54,13 +54,14 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.ronan.qmusicwatch"
+        applicationId = "com.qmusicwatch.round"
         minSdk = 24
         targetSdk = 36
-        versionCode = 44
-        versionName = "0.9.14"
+        versionCode = 1
+        versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["usesCleartext"] = "false"
+        buildConfigField("boolean", "QMUSIC_UPDATES_ENABLED", "false")
         buildConfigField("String", "QMUSIC_SERVER_BASE_URL", "\"https://heyboxlite.xyz/\"")
         buildConfigField("String", "QMUSIC_RELEASE_CERT_SHA256", "\"$expectedReleaseCertificateSha256\"")
     }
@@ -77,6 +78,12 @@ android {
     buildTypes {
         debug {
             manifestPlaceholders["usesCleartext"] = "true"
+        }
+        create("showcase") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".showcase"
+            versionNameSuffix = "-showcase"
+            matchingFallbacks += listOf("debug")
         }
         release {
             signingConfig = signingConfigs.findByName("canonicalRelease")
@@ -110,6 +117,8 @@ tasks.matching { it.name in setOf("packageRelease", "assembleRelease", "bundleRe
 }
 
 dependencies {
+    implementation(files("libs/heytap-widget-v7.0.18.aar"))
+    implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
@@ -138,6 +147,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest:1.11.4")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.11.4")
     testImplementation("androidx.work:work-testing:2.11.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
@@ -146,3 +156,19 @@ dependencies {
 }
 
 kapt { correctErrorTypes = true }
+
+tasks.withType<Test>().configureEach {
+    val windowsJavaLauncher = rootProject.file("../../构建数据/test-jdk/bin/java.exe")
+    if (System.getProperty("os.name").startsWith("Windows") && windowsJavaLauncher.isFile) {
+        executable = windowsJavaLauncher.absolutePath
+    }
+    // Keep Robolectric's downloaded Android images inside this project as well.
+    systemProperty("maven.repo.local", rootProject.file("../../构建数据/robolectric").absolutePath)
+    systemProperty("qmusic.preview.dir", rootProject.file("../../测试输出/圆屏预览").absolutePath)
+    System.getenv("QMUSIC_TEST_TEMP")?.let { systemProperty("java.io.tmpdir", it) }
+    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    listOf("http.proxyHost", "http.proxyPort", "https.proxyHost", "https.proxyPort").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    maxHeapSize = "3g"
+}

@@ -1,69 +1,164 @@
-# QMusic Watch
+<h1 align="center">QMusic-CircleWatch</h1>
+<p align="center">把音乐、歌词和播放控制，放进适合圆形手表的界面。</p>
+<p align="center"><b>OPPO 圆表适配 · 胶囊列表 · 真实逐字歌词 · 表冠与短震反馈</b></p>
+<p align="center">
+  <a href="https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/v1.0">下载 1.0</a> ·
+  <a href="#界面预览">界面预览</a> · <a href="#二创主要更新">二创更新</a> ·
+  <a href="#第一次使用">使用方法</a> · <a href="#工程组成与实现">工程组成</a> ·
+  <a href="CHANGELOG.md">版本记录</a>
+</p>
 
-面向 480×480 方屏、完整 Android 7.0+ 手表的第三方非官方音乐客户端。项目采用
-Kotlin、Jetpack Compose 和 Media3，使用 Apache-2.0 协议，
-仅用于开源、非商业学习与个人测试。
+QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huanghao897/QMusicWatch) **0.9.14** 二次开发的 Android 手表音乐客户端，由 **SIAKNG** 维护本次圆表适配。
+保留搜索、音乐库、播放、歌词、缓存与账号权益判断，并结合 OPPO 圆表资料完善布局、实体表冠、原生短震和滚动动画。
 
-> 本项目与腾讯或 QQ 音乐无隶属、赞助或认可关系，不使用官方图标，不绕过会员、
-> 地区、付费或 DRM 限制。公开发布前必须自行核对服务条款、商标和内容缓存合规性。
+当前版本 **1.0**，安装包 **QMusic-CircleWatch-1.0.apk**，独立包名 `com.qmusicwatch.round`。最低 Android 7.0；主要实机验证设备为 **OPPO OWW251，Android 11，466 × 466**。方屏保留既有布局分支，其他设备尚未逐台实测。
 
-## 已实现
+本仓库与 Release **均为私有，供当前账号审阅**。本项目不隶属于腾讯、QQ 音乐或 OPPO；音乐与授权沿用原工程服务，不内置曲库或会员授权。
 
-- QQ/微信二维码由私有 HTTPS 服务创建并轮询，手表不依赖系统 WebView；最终 Cookie 仅加密保存在手表本机
-- 发现/我的横向分页首页，每日推荐 5/10 首与“换一换”
-- 歌曲和专辑完整搜索、分页加载，歌单/歌手搜索与本地搜索历史
-- 我喜欢、歌单创建/改名/删除、加歌和本地最近播放
-- Media3 后台播放、四种播放模式、完整队列/进度恢复、系统媒体通知和耳机控制
-- LRC/QRC/翻译与纯文本歌词回退、居中逐字高亮、原文/翻译开关、时间校准和点击跳转
-- 封面双击播放/暂停、上下滑音量、播放器左滑歌词、表冠控制、防误触锁定和 AMOLED 低功耗播放器
-- 标准、HQ、SQ 与 Hi-Res 官方档位展示；已验证档位按歌曲和账号实际返回自动降级
-- Wi-Fi 下载、按歌单缓存、容量/失效清理和账号隔离锁定
-- 队列拖动、正倒序、搜索、去重、歌单批量导入及保存为新歌单
-- 模块化设置、增强定时关闭、账号/VIP/歌单分区、蓝牙入口和脱敏日志导出
-- 应用更新检查、公告、功能开关和用户确认后的二次脱敏诊断提交
+> 图片为本工程原生页面在 OWW251 手表上的实际渲染，使用独立离线展示包和演示数据。歌名、歌单、账号、歌词与二维码均为示例，二维码不能登录。来源见 [截图说明](docs/SCREENSHOTS.md)。
 
-## 当前运行模式
+## 版本更新
 
-二维码创建和状态轮询通过私有 HTTPS 服务完成，短时票据和最终凭据只存在于服务端
-内存，不写数据库或日志；手表收到最终凭据后使用 Android Keystore 加密保存。
-首页、搜索、详情、歌词、播放地址、收藏和歌单请求仍由手表直接连接 QQ 音乐 HTTPS
-接口。应用更新、公告和诊断提交也使用该 HTTPS 服务，但服务不接收搜索词或音乐播放
-地址，也不代理音频流。服务不可用时，已经登录的搜索、缓存和音乐播放仍可直连运行，
-新登录需要等待服务恢复。
-QQ 音乐并未为第三方客户端提供稳定公开的完整 API，接口变化时需要更新客户端；
-“最近播放”因此只使用本地记录。
+### 1.0 · 2026-11-01（当前私有审阅版）
 
-服务端实现和管理页面不在本公开客户端仓库中维护。
+- 统一 OPPO 圆表布局与胶囊形选项，收紧列表间距，改善圆屏边缘显示和触控。
+- 滚动时将底部迷你播放器收起为专辑圆标，用描边显示实际播放进度，点击展开。
+- 顶部时间使用薄型全宽半透明渐变，软化进入时间区的滚动内容。
+- 歌词与翻译最多三行；依据有效逐字时序推进，无时序则整行高亮；统一未播放行灰度并柔化进度边界。
+- 适配 OWW251 表冠输入与 OPPO 原生短震，减少快速或反向滚动时的抖动。
+- 改善列表与歌词绘制；采用独立名称与签名，隔离原版 APK 更新入口。
 
-## 构建 Android
+[下载 QMusic-CircleWatch 1.0](https://github.com/SIAKNG/QMusic-CircleWatch/releases/download/v1.0/QMusic-CircleWatch-1.0.apk) · [发布说明](https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/v1.0) · [完整更新记录](CHANGELOG.md)
 
-要求 Android SDK 36；普通构建可使用 JDK 17，运行包含 API 36 Robolectric 的完整测试建议使用 JDK 21：
+## 功能一览
+
+| 功能 | 可以做什么 |
+| --- | --- |
+| 发现与推荐 | 查看每日推荐、推荐歌单，进入曲目、歌单详情与搜索 |
+| 搜索 | 输入关键词，查看历史和结果列表，选择歌曲播放 |
+| 音乐库 | 查看喜欢、自建及收藏歌单、最近播放，保留原有账号操作 |
+| 扫码登录 | 显示授权二维码与有效期，根据页面提示在手机端授权 |
+| 播放控制 | 播放/暂停、上一首/下一首、进度、喜欢、模式与队列 |
+| 迷你播放器 | 滚动收起为专辑圆标与真实进度环，点击展开 |
+| 歌词与翻译 | 最多三行、当前行强调、真实时序逐字、无时序则整行高亮 |
+| 队列与模式 | 查看并管理播放队列；顺序、循环和随机播放 |
+| 音质 | 按曲目和账号权益显示标准、HQ、SQ 的可用性 |
+| 缓存管理 | 显示任务与本地曲目，保留仅 Wi-Fi 缓存等设置 |
+| 表冠与触觉 | 列表滚动、可选音量控制、OPPO 短震与系统回退 |
+| 个性设置 | 界面字号、主题、歌词、睡眠定时、耳机提醒与播放行为 |
+
+详细操作见 [功能说明](docs/FEATURES.md)。Hi-Res 未宣称可播放；版权、会员权益、网络和上游接口仍决定实际可用范围。
+
+## 二创主要更新
+
+原版 **已有部分圆屏布局、表冠和逐字歌词**。本版在其基础上完善 OPPO 圆表体验，不将原有音乐业务列作二创新增。
+
+| 重点 | 本版最终效果 |
+| --- | --- |
+| 圆表布局 | 比例留边、稳定的边缘缩放、胶囊选项、圆形确认按钮与统一触控区 |
+| 播放入口 | 胶囊与专辑圆标切换，实际进度环与点击展开 |
+| 歌词 | 三行文本、稳定强调、跨行顺序上色、柔和进度前沿、同灰度非当前行 |
+| 时间区 | 轻薄全宽透明渐变与阴影，软化重叠；不依赖实时背景模糊 |
+| 表冠 | 识别 OWW251 鼠标式滚轮，合并限速并过滤反向噪声 |
+| 原生短震 | OPPO 线性马达效果 302，按距离和时间节流并遵守系统开关 |
+| 流畅度 | 稳定列表测量、歌词绘制阶段推进、按实际窗口帧采样 |
+| 独立维护 | 独立包名及签名，改名保留本项目数据，隔离原版更新包 |
+
+逐项对照见 [与原版相比改了什么](docs/UPSTREAM_DIFF.md)。
+
+## 界面预览
+
+点击图片可查看原始 PNG。长页面展示首屏，完整选项仍可在应用内滚动查看。截图是原生实机渲染，不是重新绘制的概念图。
+
+### 首页与播放入口
+
+| 发现首页 | 收起的专辑圆标与进度环 | 我的音乐 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/home.png" width="240" alt="发现首页"> | <img src="docs/screenshots/showcase/home-mini.png" width="240" alt="收起的专辑圆标与进度环"> | <img src="docs/screenshots/showcase/my.png" width="240" alt="我的音乐"> |
+
+### 搜索与登录
+
+| 搜索与历史 | 搜索结果 | 扫码登录布局 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/search.png" width="240" alt="搜索与历史"> | <img src="docs/screenshots/showcase/search-results.png" width="240" alt="搜索结果"> | <img src="docs/screenshots/showcase/login.png" width="240" alt="扫码登录布局"> |
+
+### 音乐库与歌单
+
+| 喜欢的歌曲 | 自建歌单 | 收藏歌单 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/liked.png" width="240" alt="喜欢的歌曲"> | <img src="docs/screenshots/showcase/created.png" width="240" alt="自建歌单"> | <img src="docs/screenshots/showcase/collected.png" width="240" alt="收藏歌单"> |
+
+### 最近、详情与缓存
+
+| 最近播放 | 歌单详情 | 缓存与任务 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/recent.png" width="240" alt="最近播放"> | <img src="docs/screenshots/showcase/detail.png" width="240" alt="歌单详情"> | <img src="docs/screenshots/showcase/downloads.png" width="240" alt="缓存与任务"> |
+
+### 播放器与歌词
+
+| 播放控制 | 三行歌词与逐字高亮 | 播放队列 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/player.png" width="240" alt="播放控制"> | <img src="docs/screenshots/showcase/lyrics.png" width="240" alt="三行歌词与逐字高亮"> | <img src="docs/screenshots/showcase/queue.png" width="240" alt="播放队列"> |
+
+### 设置与显示
+
+| 设置中心 | 显示与歌词设置 | 播放设置 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/settings.png" width="240" alt="设置中心"> | <img src="docs/screenshots/showcase/settings-display.png" width="240" alt="显示与歌词设置"> | <img src="docs/screenshots/showcase/settings-playback.png" width="240" alt="播放设置"> |
+
+### 网络、关于与选择
+
+| 网络与缓存设置 | 关于与版本 | 选择弹层 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/showcase/settings-network.png" width="240" alt="网络与缓存设置"> | <img src="docs/screenshots/showcase/settings-about.png" width="240" alt="关于与版本"> | <img src="docs/screenshots/showcase/font-selector.png" width="240" alt="选择弹层"> |
+
+### 确认弹窗
+
+| 确认弹窗 |
+| :---: |
+| <img src="docs/screenshots/showcase/confirm.png" width="240" alt="确认弹窗"> |
+
+完整清单与复现方式见 [截图说明](docs/SCREENSHOTS.md)，也可打开本地 [界面浏览页](docs/preview/index.html)。静态图片不能体现动画帧率与振动强度。
+
+## 第一次使用
+
+1. 用拥有本私有仓库访问权的 GitHub 账号，从 Release 下载 `QMusic-CircleWatch-1.0.apk` 并安装到手表。
+2. 已安装本二创版本时可直接覆盖安装，包名与签名保持一致；原作者版本可与本应用并存，需在本应用授权。
+3. 连接可正常上网的 Wi-Fi 或热点，在登录页按提示扫码；图库中的示例二维码不能使用。
+4. 从发现、搜索或音乐库进入歌曲，点击底部播放胶囊打开播放器，切换到歌词页。
+5. 列表可用触屏或表冠滚动。系统触觉关闭时不强制振动；播放页表冠音量可在设置关闭。
+
+搜索或播放失败时，先检查网络、域名解析和登录状态。播放地址、音质和账号操作仍受上游平台限制。本版不安装原版自动更新 APK，后续更新以本私有仓库 Release 为准。
+
+## 工程组成与实现
+
+使用 **Kotlin + Jetpack Compose + Coroutines/Flow + Room/DataStore + Media3**；结合用户提供的 OPPO 控件和圆表资料适配设备能力。
+
+界面层负责圆屏几何、胶囊控件、迷你播放器与歌词绘制；ViewModel 协调状态，网络和存储沿用原工程；表冠事件按可见区域分发，过滤和限速后触发节流短震。
+
+- [工程结构与数据流](docs/ARCHITECTURE.md)
+- [构建、签名和离线展示](docs/BUILDING.md)
+- [详细功能说明](docs/FEATURES.md)
+- [二创与原版对照](docs/UPSTREAM_DIFF.md)
 
 ```powershell
 .\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug
 ```
 
-正式构建：
+需要 JDK 21、Android SDK 36。正式包还需维护者本地签名；仓库不包含私钥、口令、个人账号与原始设备日志。
 
-```powershell
-Copy-Item release-signing.properties.example release-signing.properties
-# 编辑 release-signing.properties，指向仓库外的正式私钥
-.\gradlew.bat :app:assembleRelease
-```
+## 验证与服务边界
 
-Release 构建不再使用 Gradle 默认调试密钥。打包前会校验证书 SHA-256 必须为
-`fbd5642c3c1b5882545f6f1227cf2dc38a54bcd18609203935eedbef408d1382`；
-缺少配置、私钥或指纹不一致时构建会直接失败。真实 `release-signing.properties`、
-私钥和口令不得提交仓库；CI 可使用 `QMUSICWATCH_RELEASE_*` 环境变量提供同一配置。
+实机已验证搜索、在线播放、暂停、歌词、迷你播放器切换、时间区与列表。用户已确认实体表冠正常滚动、有短震，快速或反向操作不再抽动。演示数据不能代替线上业务验收。
 
-签名兼容说明：`v0.9.0–v0.9.2` 与 `v0.9.5+` 使用上述正式证书，可直接覆盖安装。
-`v0.9.3/v0.9.4` 曾被错误的沙箱调试证书签名，从这两版迁移到 `v0.9.5+` 必须先卸载一次；
-Android 不允许在没有旧私钥签名轮换证明的情况下合并两条独立签名链。
+重新扫码完整授权、收藏与歌单写入、真实离线缓存、蓝牙及全部会员音质组合尚未逐项完成实机验收，不能据此声称全部线上功能已经验证。既有业务与权限判断保留。
 
-## 验证
+## 来源与许可证
 
-```powershell
-.\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
-```
+- 原工程：[huanghao897/QMusicWatch](https://github.com/huanghao897/QMusicWatch)，导入基线 0.9.14。
+- 圆表参考：[OPPO 官方适配文档](https://open.oppomobile.com/documentation/page/info?id=12357)，及用户提供的设计资料和控件。
+- 保留 [Apache-2.0](LICENSE)、[NOTICE 与署名](NOTICE.md)、[第三方说明](THIRD_PARTY.md) 和 [原版 README](README.upstream.md)。
+- OPPO 本地依赖用于当前私有工程复现；公开分发前需另行核对依赖分发条件。
 
-开源研究来源和许可证边界见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+本 README 的 1.0 为二次开发版本号，与原工程 0.9.x 的序列分别维护。

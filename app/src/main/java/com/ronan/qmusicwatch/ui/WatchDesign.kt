@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -17,6 +18,9 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.dimensionResource
+import com.heytap.wearable.R
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Density
@@ -26,11 +30,11 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.min
 
 val WatchBackground = Color(0xFF050505)
-val WatchSurface = Color(0xFF151616)
+val WatchSurface = Color(0xFF202124)
 val WatchSurfaceRaised = Color(0xFF252626)
 val WatchTextPrimary = Color(0xFFF4F5F4)
 val WatchTextSecondary = Color(0x99F4F5F4)
-val WatchAccent = Color(0xFF78C7FF)
+val WatchAccent = Color(0xFF33B054)
 val WatchLike = Color(0xFFFF6B8B)
 val WatchVip = WatchTextPrimary
 val WatchDivider = Color(0xFF383A39)
@@ -128,6 +132,7 @@ internal fun resolveWatchDimensions(
     width: Dp,
     uiSize: WatchUiSize,
     isRound: Boolean = false,
+    fontScale: Float = 1f,
 ): WatchDimensions {
     val windowClass = when {
         width <= 280.dp -> WatchWindowClass.Compact
@@ -146,22 +151,22 @@ internal fun resolveWatchDimensions(
         isRound = isRound,
         // Keep round-watch content inside the visible chord so leading
         // controls and list rows remain tappable near the clipped corners.
-        screenPadding = (if (isRound) 20.dp else 8.dp).scaled(),
-        topSafeInset = (if (isRound) 12.dp else 8.dp).scaled(),
+        screenPadding = if (isRound) width * .05f else 8.dp.scaled(),
+        topSafeInset = if (isRound) 0.dp else 8.dp.scaled(),
         verticalPadding = 5.dp.scaled(),
-        itemSpacing = 4.dp.scaled(),
+        itemSpacing = if (isRound) 2.dp else 4.dp.scaled(),
         titleSp = 18f * scale,
-        bodySp = 13f * scale,
-        secondarySp = 10.5f * scale,
-        trackRowHeight = 46.dp.scaled(),
-        searchHeight = 40.dp.scaled(),
+        bodySp = (if (isRound) 17f else 13f) * scale,
+        secondarySp = (if (isRound) 14f else 10.5f) * scale,
+        trackRowHeight = if (isRound) (64.dp + 38.dp * (scale * fontScale - 1f).coerceAtLeast(0f)) else 46.dp.scaled(),
+        searchHeight = if (isRound) (52.dp + 24.dp * (scale * fontScale - 1f).coerceAtLeast(0f)) else 40.dp.scaled(),
         artworkSize = 36.dp.scaled(),
-        miniPlayerHeight = (if (isRound) 58.dp else 48.dp).scaled(),
-        miniPlayerWidthFraction = if (isRound) .82f else 1f,
+        miniPlayerHeight = if (isRound) 48.dp else 48.dp.scaled(),
+        miniPlayerWidthFraction = if (isRound) .62f else 1f,
         touchTarget = 40.dp.scaled(),
         iconSize = 19.dp.scaled(),
         cornerRadius = 23.dp.scaled(),
-        rowCornerRadius = 23.dp.scaled(),
+        rowCornerRadius = if (isRound) 30.dp else 23.dp.scaled(),
         searchCornerRadius = 20.dp.scaled(),
         controlCornerRadius = 20.dp.scaled(),
         playerActionSize = 36.dp.scaled(),
@@ -215,11 +220,25 @@ fun QMusicWatchTheme(
             titleLarge = TextStyle(fontSize = 18.sp),
         ),
     ) {
+        Surface(Modifier.fillMaxSize(), color = colors.background, contentColor = colors.onBackground) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
+            val base = resolveWatchDimensions(maxWidth, selectedSize, isRound, LocalConfiguration.current.fontScale)
+            val typeScale = when (selectedSize) {
+                WatchUiSize.Compact -> 1f
+                WatchUiSize.Standard -> 1.1f
+                WatchUiSize.Large -> 1.22f
+            }
+            val fontScale = LocalDensity.current.fontScale
+            val dimensions = if (isRound) base.copy(
+                titleSp = dimensionResource(R.dimen.hey_m_title).value / fontScale * typeScale,
+                bodySp = dimensionResource(R.dimen.hey_s_title).value / fontScale * typeScale,
+                secondarySp = dimensionResource(R.dimen.hey_m_desription).value / fontScale * typeScale,
+            ) else base
             androidx.compose.runtime.CompositionLocalProvider(
-                LocalWatchDimensions provides resolveWatchDimensions(maxWidth, selectedSize, isRound),
+                LocalWatchDimensions provides dimensions,
                 content = content,
             )
+        }
         }
     }
 }

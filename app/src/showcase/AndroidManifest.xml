@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- An isolated documentation build: no account, search or audio requests can leave this app. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <application>
+        <activity android:name=".ShowcaseActivity" android:exported="true" android:label="QMusic-CircleWatch 展示" />
+    </application>
+</manifest>

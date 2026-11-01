@@ -1,41 +1,40 @@
 package com.ronan.qmusicwatch.performance
 
-import android.view.Choreographer
+import android.os.Handler
+import android.os.HandlerThread
+import android.view.FrameMetrics
+import android.view.Window
 import com.ronan.qmusicwatch.data.AppLog
 
-object FramePerformanceMonitor : Choreographer.FrameCallback {
+/** Observe actual rendered frames without waking an idle UI every vsync. */
+object FramePerformanceMonitor {
     @Volatile var section: String = "startup"
-    private var running = false
-    private var lastFrameNanos = 0L
+    private val thread by lazy { HandlerThread("qmusic-frame-metrics").apply { start() } }
+    private val handler by lazy { Handler(thread.looper) }
+    private var window: Window? = null
     private var frames = 0
     private var slowFrames = 0
     private var frozenFrames = 0
+    private val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
+        val frameMs = metrics.getMetric(FrameMetrics.TOTAL_DURATION) / 1_000_000L
+        frames++
+        if (frameMs > 32L) slowFrames++
+        if (frameMs > 700L) frozenFrames++
+        if (frames >= 120) flush()
+    }
 
-    fun start() {
-        if (running) return
-        running = true
-        lastFrameNanos = 0
-        Choreographer.getInstance().postFrameCallback(this)
+    fun start(target: Window) {
+        if (window === target) return
+        stop()
+        window = target
+        target.addOnFrameMetricsAvailableListener(listener, handler)
     }
 
     fun stop() {
-        if (!running) return
-        running = false
-        Choreographer.getInstance().removeFrameCallback(this)
-        flush()
-    }
-
-    override fun doFrame(frameTimeNanos: Long) {
-        if (!running) return
-        if (lastFrameNanos != 0L) {
-            val frameMs = (frameTimeNanos - lastFrameNanos) / 1_000_000
-            frames++
-            if (frameMs > 32) slowFrames++
-            if (frameMs > 700) frozenFrames++
-            if (frames >= 120) flush()
-        }
-        lastFrameNanos = frameTimeNanos
-        Choreographer.getInstance().postFrameCallback(this)
+        val previous = window ?: return
+        previous.removeOnFrameMetricsAvailableListener(listener)
+        window = null
+        handler.post { flush() }
     }
 
     private fun flush() {
