@@ -30,11 +30,11 @@
 ```powershell
 .\gradlew.bat :app:assembleShowcase
 adb -s WATCH_SERIAL install -r app/build/outputs/apk/showcase/app-showcase.apk
-python tools/capture_showcase.py --adb PATH_TO_ADB --serial WATCH_SERIAL --full-redraw
+python tools/capture_showcase.py --adb PATH_TO_ADB --serial WATCH_SERIAL --video-frames
 adb -s WATCH_SERIAL uninstall com.qmusicwatch.round.showcase
 ```
 
-本工具限定 OWW251 并核对前台为截图包；设备需退出充电覆盖界面。截图复用真实生产页面，以明确的演示资料覆盖私人内容，不会清除或替换正式应用数据。源码入口仅位于 showcase source set。更多见 [截图说明](SCREENSHOTS.md)。
+本工具限定 OWW251 并核对前台为截图包；设备需退出充电覆盖界面。录屏帧导出需要 FFmpeg，可用 `--ffmpeg` 指定路径。截图复用真实生产页面，以明确的演示资料覆盖私人内容，不会清除或替换正式应用数据。源码入口仅位于 showcase source set。更多见 [截图说明](SCREENSHOTS.md)。
 
 ## 依赖与来源
 

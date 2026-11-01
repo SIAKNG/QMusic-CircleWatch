@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--scene", help="Capture one scene only")
     parser.add_argument("--delay", type=float, default=8.0)
     parser.add_argument("--full-redraw", action="store_true", help="Temporarily use full surface redraws; restore the original property on exit")
+    parser.add_argument("--video-frames", action="store_true", help="Extract native screenrecord frames when direct screenshots omit static layers")
+    parser.add_argument("--ffmpeg", default="ffmpeg", help="FFmpeg executable for --video-frames")
     args = parser.parse_args()
     def adb(*command):
         return subprocess.check_output([args.adb, "-s", args.serial, *command], timeout=35)
@@ -57,19 +59,37 @@ def main():
         for scene, title in SCENES:
             if args.scene and args.scene != scene:
                 continue
-            adb("shell", "am", "force-stop", PACKAGE)
-            adb("shell", "am", "start", "-n", f"{PACKAGE}/com.ronan.qmusicwatch.ShowcaseActivity", "--es", "scene", scene)
+            adb("shell", "am", "start", "-f", "0x10008000", "-n",
+                f"{PACKAGE}/com.ronan.qmusicwatch.ShowcaseActivity", "--es", "scene", scene)
             time.sleep(args.delay)
             focus = adb("shell", "dumpsys", "window").decode(errors="replace")
             focused = next((line for line in focus.splitlines() if "mCurrentFocus=" in line), "")
             if PACKAGE not in focused:
                 raise SystemExit(f"Capture stopped: showcase not foreground: {focused}")
-            png = adb("exec-out", "screencap", "-p")
+            if scene in {"home-mini", "search-results"}:
+                adb("shell", "input", "swipe", "233", "330", "233", "170", "300")
+                time.sleep(0.8)
+            path = output / (scene.replace("/", "-") + ".png")
+            if args.video_frames:
+                raw = Path(__file__).resolve().parents[1] / ".screenshots-raw" / (path.stem + ".mp4")
+                raw.parent.mkdir(exist_ok=True)
+                remote = "/data/local/tmp/qmusic-circle-showcase.mp4"
+                adb("shell", "screenrecord", "--size", "466x466", "--bit-rate", "20000000", "--time-limit", "2", remote)
+                # Binary pipe avoids Windows adb's non-ASCII host path limits.
+                raw.write_bytes(adb("exec-out", "cat", remote))
+                frame = raw.with_suffix(".png")
+                # Static screen recordings can contain only the first frame.
+                # Decode it directly rather than seeking past the last frame.
+                subprocess.run([args.ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(raw),
+                                "-frames:v", "1", "-y", str(frame)], check=True, capture_output=True, timeout=20)
+                adb("shell", "rm", remote)
+                png = frame.read_bytes()
+            else:
+                png = adb("exec-out", "screencap", "-p")
             if not png.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise SystemExit("Invalid screenshot data")
             if len(png) < 5000:
                 raise SystemExit("Capture stopped: blank or not-yet-rendered screen; retry with --delay 10")
-            path = output / (scene.replace("/", "-") + ".png")
             path.write_bytes(png)
             print(json.dumps({"scene": scene, "title": title, "file": path.name, "bytes": len(png)}, ensure_ascii=False), flush=True)
 

@@ -1,0 +1,231 @@
+{
+  "captureDates": [
+    "2026-11-01",
+    "2026-11-02"
+  ],
+  "device": "OPPO OWW251",
+  "android": 11,
+  "count": 22,
+  "items": [
+    {
+      "file": "home.png",
+      "title": "发现首页",
+      "width": 466,
+      "height": 466,
+      "bytes": 34953,
+      "sha256": "dc37478fe2f153ae8286170a624d96039670f4e3ad82241b788984d24e7fdcba",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "home-mini.png",
+      "title": "收起的专辑圆标与进度环",
+      "width": 466,
+      "height": 466,
+      "bytes": 45168,
+      "sha256": "c4567ed23ada5fecf4a9b68b8c042bb2a53c4fc767880f0221774227dd9e1948",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "my.png",
+      "title": "我的音乐",
+      "width": 466,
+      "height": 466,
+      "bytes": 49281,
+      "sha256": "a2d3baa7b9654ad51a6af6846015dbb887ae1cb19cccdd8e1bdb19f306ff074a",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "search.png",
+      "title": "搜索与历史",
+      "width": 466,
+      "height": 466,
+      "bytes": 39797,
+      "sha256": "504b2d7df995950e88526f7d9dc45c74d1f345472cd99fa07091cccf11456f78",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "search-results.png",
+      "title": "搜索结果",
+      "width": 466,
+      "height": 466,
+      "bytes": 66866,
+      "sha256": "ade441513c7b6c2b2a5e69ce068e903127857bbc647d652480bc2d6a68d061b9",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "login.png",
+      "title": "扫码登录布局",
+      "width": 466,
+      "height": 466,
+      "bytes": 25992,
+      "sha256": "f0945cd2a0349f7c63422622c3f2ca520855b2c89fefbbcbb3f1741e3f76c276",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "liked.png",
+      "title": "喜欢的歌曲",
+      "width": 466,
+      "height": 466,
+      "bytes": 36364,
+      "sha256": "a5c9f20a77e4194a31ffcd0260c35b7199c4545cb980b0a15fcbb246777ff81b",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "created.png",
+      "title": "自建歌单",
+      "width": 466,
+      "height": 466,
+      "bytes": 37519,
+      "sha256": "31f42febb984db5e64d2ae55f666bafc84f1f3339f595d47f2a0e6ddad7e15fa",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "collected.png",
+      "title": "收藏歌单",
+      "width": 466,
+      "height": 466,
+      "bytes": 44229,
+      "sha256": "b5641171876125f05d9e9c713523a21e1fc7e655021bd589cf633e41dc3020c5",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "recent.png",
+      "title": "最近播放",
+      "width": 466,
+      "height": 466,
+      "bytes": 37250,
+      "sha256": "bdcdcc7e88ebbd05aa9ee415a58c233b3d6cad194edd176e4c4e9c50527e8566",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "detail.png",
+      "title": "歌单详情",
+      "width": 466,
+      "height": 466,
+      "bytes": 57191,
+      "sha256": "87490cd805e8f7f07adb8b2775417ba12809a0334a6da134a39da6348555ea20",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "downloads.png",
+      "title": "缓存与任务",
+      "width": 466,
+      "height": 466,
+      "bytes": 35605,
+      "sha256": "7f6909ce97bfc560a1f36b30f23f11d94595f691cafbe7a4c607cb5e28b51e33",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "player.png",
+      "title": "播放控制",
+      "width": 466,
+      "height": 466,
+      "bytes": 37746,
+      "sha256": "8e4d84e0b6d551f1017b5db9f0eeaaa4c5a1c1b320c20b85832e60fa4e0a14ff",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "lyrics.png",
+      "title": "三行歌词与逐字高亮",
+      "width": 466,
+      "height": 466,
+      "bytes": 75280,
+      "sha256": "4a1a667cf8ef86bc6f5fdde1ba563a395ee1e3ad048b7c83d8605f98d87c3193",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "queue.png",
+      "title": "播放队列",
+      "width": 466,
+      "height": 466,
+      "bytes": 46176,
+      "sha256": "cd46a71b57981b12b6a2d5faf8104c252ed6560932cfd8fe03a65efafd7562cf",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "settings.png",
+      "title": "设置中心",
+      "width": 466,
+      "height": 466,
+      "bytes": 24386,
+      "sha256": "dfc920cdbec41f7f93482f9a8a20b475df289d14f2fc97da0375f742898fe1e1",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "settings-display.png",
+      "title": "显示与歌词设置",
+      "width": 466,
+      "height": 466,
+      "bytes": 37407,
+      "sha256": "9a37052624cefc18d7cdc58532b743de14d2979e4c06b5849bcce9208a74d704",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "settings-playback.png",
+      "title": "播放设置",
+      "width": 466,
+      "height": 466,
+      "bytes": 45101,
+      "sha256": "69448eb0c2bb6c39b5b83e8fe4c89b3a92029107ab5f8375dc90703ce3d029a4",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "settings-network.png",
+      "title": "网络与缓存设置",
+      "width": 466,
+      "height": 466,
+      "bytes": 38403,
+      "sha256": "a163a9ae69cb6ac47f551fb484927f40c554752df5bf9bbc12acfc3ba2f1cbb9",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "settings-about.png",
+      "title": "关于与版本",
+      "width": 466,
+      "height": 466,
+      "bytes": 44273,
+      "sha256": "5d09fa1090a685fdeebfc0ac7fe4c2a313548afe41e870f96b1cb32edb707ff7",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "font-selector.png",
+      "title": "选择弹层",
+      "width": 466,
+      "height": 466,
+      "bytes": 26908,
+      "sha256": "2af64587277ab303bc6daed150ba8fe9439cf30a4f4630bd9958360ab38117eb",
+      "source": "Native screenrecord frame exported by FFmpeg",
+      "data": "offline showcase demonstration fixtures"
+    },
+    {
+      "file": "confirm.png",
+      "title": "确认弹窗",
+      "width": 466,
+      "height": 466,
+      "bytes": 30540,
+      "sha256": "65116fb5ebb0057e475ee97bfa5dbe9a8801b508d477f69f4c10dea5afab1de5",
+      "source": "ADB native screenshot",
+      "data": "offline showcase demonstration fixtures"
+    }
+  ]
+}

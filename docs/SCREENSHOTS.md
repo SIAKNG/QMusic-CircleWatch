@@ -1,10 +1,10 @@
 # 截图来源与清单
 
-采集日期：2026-11-01。设备：OPPO OWW251，Android 11，原生截图 466 × 466。
+采集日期：2026-11-01—2026-11-02。设备：OPPO OWW251，Android 11，原生截图 466 × 466。
 
-所有 PNG 均由 ADB `exec-out screencap -p` 原样保存，没有抠图、重绘或拼接。README 仅设置显示宽度，不改变原图。
+PNG 来自手表原生 ADB 截图，或从原生 `screenrecord` 录屏导出的界面帧；均保持 466 × 466 原尺寸，没有抠图、重绘或拼接。README 仅设置显示宽度。
 
-OWW251 的部分静态图层在增量刷新截屏中会缺失。本次仅在截图期间通过工具的 `--full-redraw` 临时请求完整表面重绘，退出时恢复原调试属性；不改变布局与显示值，也不写入正式包。该属性的定义见 [Android 11 HWUI 源码](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android11-release/libs/hwui/Properties.h)。截图状态不用于性能测量。
+部分页面采用录屏帧，是因为本设备直接 `screencap` 偶尔遗漏静态图层。导出由 FFmpeg 完成，不重新绘制界面，不改变布局、文字、账号或配色；采集过程不用于性能测量。排查时使用的临时调试属性已恢复。
 
 为避免暴露真实账号、歌单、播放地址与授权二维码，截图使用独立 `com.qmusicwatch.round.showcase` 应用；它复用正式工程的页面、布局和控件，使用固定演示数据，移除联网权限，拥有独立存储，不读取正式应用账号。
 
