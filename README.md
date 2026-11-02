@@ -13,13 +13,13 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 
 当前版本 **1.0**，安装包 **QMusic-CircleWatch-1.0.apk**，独立包名 `com.qmusicwatch.round`。最低 Android 7.0；主要实机验证设备为 **OPPO OWW251，Android 11，466 × 466**。方屏保留既有布局分支，其他设备尚未逐台实测。
 
-本仓库与 Release **均为私有，供当前账号审阅**。本项目不隶属于腾讯、QQ 音乐或 OPPO；音乐与授权沿用原工程服务，不内置曲库或会员授权。
+本仓库与 Release **已公开，源码、界面展示与 1.0 安装包均可直接查看和下载**。本项目不隶属于腾讯、QQ 音乐或 OPPO；音乐与授权沿用原工程服务，不内置曲库或会员授权。
 
 > 图片为本工程原生页面在 OWW251 手表上的实际渲染，使用独立离线展示包和演示数据。歌名、歌单、账号、歌词与二维码均为示例，二维码不能登录。来源见 [截图说明](docs/SCREENSHOTS.md)。
 
 ## 版本更新
 
-### 1.0 · 2026-11-01（当前私有审阅版）
+### 1.0 · 2026-11-01（当前版本）
 
 - 统一 OPPO 圆表布局与胶囊形选项，收紧列表间距，改善圆屏边缘显示和触控。
 - 滚动时将底部迷你播放器收起为专辑圆标，用描边显示实际播放进度，点击展开。
@@ -122,13 +122,13 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 
 ## 第一次使用
 
-1. 用拥有本私有仓库访问权的 GitHub 账号，从 Release 下载 `QMusic-CircleWatch-1.0.apk` 并安装到手表。
+1. 从本仓库 Release 下载 `QMusic-CircleWatch-1.0.apk` 并安装到手表。
 2. 已安装本二创版本时可直接覆盖安装，包名与签名保持一致；原作者版本可与本应用并存，需在本应用授权。
 3. 连接可正常上网的 Wi-Fi 或热点，在登录页按提示扫码；图库中的示例二维码不能使用。
 4. 从发现、搜索或音乐库进入歌曲，点击底部播放胶囊打开播放器，切换到歌词页。
 5. 列表可用触屏或表冠滚动。系统触觉关闭时不强制振动；播放页表冠音量可在设置关闭。
 
-搜索或播放失败时，先检查网络、域名解析和登录状态。播放地址、音质和账号操作仍受上游平台限制。本版不安装原版自动更新 APK，后续更新以本私有仓库 Release 为准。
+搜索或播放失败时，先检查网络、域名解析和登录状态。播放地址、音质和账号操作仍受上游平台限制。本版不安装原版自动更新 APK，后续更新以本仓库 Release 为准。
 
 ## 工程组成与实现
 
@@ -159,6 +159,6 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 - 原工程：[huanghao897/QMusicWatch](https://github.com/huanghao897/QMusicWatch)，导入基线 0.9.14。
 - 圆表参考：[OPPO 官方适配文档](https://open.oppomobile.com/documentation/page/info?id=12357)，及用户提供的设计资料和控件。
 - 保留 [Apache-2.0](LICENSE)、[NOTICE 与署名](NOTICE.md)、[第三方说明](THIRD_PARTY.md) 和 [原版 README](README.upstream.md)。
-- OPPO 本地依赖用于当前私有工程复现；公开分发前需另行核对依赖分发条件。
+- OPPO 本地依赖用于复现本次适配；其权利与使用条件归原发行方，不随本工程重新许可。
 
 本 README 的 1.0 为二次开发版本号，与原工程 0.9.x 的序列分别维护。

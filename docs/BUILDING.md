@@ -6,7 +6,7 @@
 - Android SDK 36、Gradle Wrapper 8.13；最低 Android 7.0 / API 24。
 - 正式适配验证设备：OPPO OWW251，Android 11 / API 30，466 × 466。
 
-克隆本私有仓库后，为 Android SDK 配置 `ANDROID_HOME` 或本地 `local.properties`。不要提交本机绝对路径、凭据或签名配置。
+克隆本仓库后，为 Android SDK 配置 `ANDROID_HOME` 或本地 `local.properties`。不要提交本机绝对路径、凭据或签名配置。
 
 ```powershell
 .\gradlew.bat :app:assembleDebug
@@ -38,6 +38,6 @@ adb -s WATCH_SERIAL uninstall com.qmusicwatch.round.showcase
 
 ## 依赖与来源
 
-保留 [LICENSE](../LICENSE)、[NOTICE](../NOTICE.md)、[第三方说明](../THIRD_PARTY.md) 和 [原版 README](../README.upstream.md)。OPPO 本地 AAR 由用户提供，在当前私有审阅工程中用于复现构建；若后续公开发布，需另行核对该依赖的分发条件。
+保留 [LICENSE](../LICENSE)、[NOTICE](../NOTICE.md)、[第三方说明](../THIRD_PARTY.md) 和 [原版 README](../README.upstream.md)。OPPO 本地 AAR 由用户提供，用于复现构建；其权利与使用条件归原发行方，不随本工程重新许可。
 
 音乐与登录仍依赖原工程网络服务，不内置音乐资源、个人登录 Cookie 或会员授权。变更发布名称不等于替换服务端。
