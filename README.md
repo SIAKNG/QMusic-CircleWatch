@@ -1,6 +1,6 @@
 <h1 align="center">QMusic-CircleWatch</h1>
-<p align="center">把音乐、歌词和播放控制，放进适合圆形手表的界面。</p>
-<p align="center"><b>OPPO 圆表适配 · 胶囊列表 · 真实逐字歌词 · 表冠与短震反馈</b></p>
+<p align="center">QQ 音乐安卓手表版第三方应用，适用于圆形表盘。</p>
+<p align="center"><b>圆屏适配 · 逐字歌词 · 双语翻译 · 表冠与触觉反馈</b></p>
 <p align="center">
   <a href="https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/v1.0">下载 1.0</a> ·
   <a href="#界面预览">界面预览</a> · <a href="#二创主要更新">二创更新</a> ·
@@ -8,8 +8,9 @@
   <a href="CHANGELOG.md">版本记录</a>
 </p>
 
-QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huanghao897/QMusicWatch) **0.9.14** 二次开发的 Android 手表音乐客户端，由 **SIAKNG** 维护本次圆表适配。
-保留搜索、音乐库、播放、歌词、缓存与账号权益判断，并结合 OPPO 圆表资料完善布局、实体表冠、原生短震和滚动动画。
+QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面向采用 **圆形表盘** 的 Android 手表设计。你可以在手表上搜索歌曲、访问音乐库、控制播放，并查看逐字歌词与双语翻译。
+
+本项目基于 [huanghao897/QMusicWatch](https://github.com/huanghao897/QMusicWatch) **0.9.14** 二次开发，由 **SIAKNG** 维护。结合 OPPO 圆表资料完善圆屏布局、实体表冠、原生短震和滚动动画，保留原有音乐业务与账号权益判断。
 
 当前版本 **1.0**，安装包 **QMusic-CircleWatch-1.0.apk**，独立包名 `com.qmusicwatch.round`。最低 Android 7.0；主要实机验证设备为 **OPPO OWW251，Android 11，466 × 466**。方屏保留既有布局分支，其他设备尚未逐台实测。
 
