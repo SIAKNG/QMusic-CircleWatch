@@ -29,7 +29,7 @@ PNG 来自手表原生 ADB 截图，或从原生 `screenrecord` 录屏导出的�
 | 歌单详情 | [detail](screenshots/showcase/detail.png) |
 | 缓存与任务 | [downloads](screenshots/showcase/downloads.png) |
 | 播放控制 | [player](screenshots/showcase/player.png) |
-| 三行歌词与逐字高亮 | [lyrics](screenshots/showcase/lyrics.png) |
+| 逐字歌词与双语翻译 | [lyrics](screenshots/showcase/lyrics.png) |
 | 播放队列 | [queue](screenshots/showcase/queue.png) |
 | 设置中心 | [settings](screenshots/showcase/settings.png) |
 | 显示与歌词设置 | [settings/display](screenshots/showcase/settings-display.png) |

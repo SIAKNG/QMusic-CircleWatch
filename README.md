@@ -24,7 +24,7 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 - 统一 OPPO 圆表布局与胶囊形选项，收紧列表间距，改善圆屏边缘显示和触控。
 - 滚动时将底部迷你播放器收起为专辑圆标，用描边显示实际播放进度，点击展开。
 - 顶部时间使用薄型全宽半透明渐变，软化进入时间区的滚动内容。
-- 歌词与翻译最多三行；依据有效逐字时序推进，无时序则整行高亮；统一未播放行灰度并柔化进度边界。
+- 支持逐字歌词与双语翻译；依据有效逐字时序推进，无时序则整行高亮；统一未播放行灰度并柔化进度边界。
 - 适配 OWW251 表冠输入与 OPPO 原生短震，减少快速或反向滚动时的抖动。
 - 改善列表与歌词绘制；采用独立名称与签名，隔离原版 APK 更新入口。
 
@@ -40,7 +40,7 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 | 扫码登录 | 显示授权二维码与有效期，根据页面提示在手机端授权 |
 | 播放控制 | 播放/暂停、上一首/下一首、进度、喜欢、模式与队列 |
 | 迷你播放器 | 滚动收起为专辑圆标与真实进度环，点击展开 |
-| 歌词与翻译 | 最多三行、当前行强调、真实时序逐字、无时序则整行高亮 |
+| 歌词与翻译 | 逐字歌词、双语翻译与当前行强调，无逐字时序时整行高亮 |
 | 队列与模式 | 查看并管理播放队列；顺序、循环和随机播放 |
 | 音质 | 按曲目和账号权益显示标准、HQ、SQ 的可用性 |
 | 缓存管理 | 显示任务与本地曲目，保留仅 Wi-Fi 缓存等设置 |
@@ -57,7 +57,7 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 | --- | --- |
 | 圆表布局 | 比例留边、稳定的边缘缩放、胶囊选项、圆形确认按钮与统一触控区 |
 | 播放入口 | 胶囊与专辑圆标切换，实际进度环与点击展开 |
-| 歌词 | 三行文本、稳定强调、跨行顺序上色、柔和进度前沿、同灰度非当前行 |
+| 歌词 | 逐字歌词与双语翻译、稳定强调、跨行顺序上色、柔和进度前沿、同灰度非当前行 |
 | 时间区 | 轻薄全宽透明渐变与阴影，软化重叠；不依赖实时背景模糊 |
 | 表冠 | 识别 OWW251 鼠标式滚轮，合并限速并过滤反向噪声 |
 | 原生短震 | OPPO 线性马达效果 302，按距离和时间节流并遵守系统开关 |
@@ -96,9 +96,9 @@ QMusic-CircleWatch 是基于 [huanghao897/QMusicWatch](https://github.com/huangh
 
 ### 播放器与歌词
 
-| 播放控制 | 三行歌词与逐字高亮 | 播放队列 |
+| 播放控制 | 逐字歌词与双语翻译 | 播放队列 |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/showcase/player.png" width="240" alt="播放控制"> | <img src="docs/screenshots/showcase/lyrics.png" width="240" alt="三行歌词与逐字高亮"> | <img src="docs/screenshots/showcase/queue.png" width="240" alt="播放队列"> |
+| <img src="docs/screenshots/showcase/player.png" width="240" alt="播放控制"> | <img src="docs/screenshots/showcase/lyrics.png" width="240" alt="逐字歌词与双语翻译"> | <img src="docs/screenshots/showcase/queue.png" width="240" alt="播放队列"> |
 
 ### 设置与显示
 

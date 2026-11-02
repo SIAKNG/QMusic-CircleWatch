@@ -16,7 +16,7 @@ SCENES = [
     ("search", "搜索与历史"), ("search-results", "搜索结果"), ("login", "扫码登录布局"),
     ("liked", "喜欢的歌曲"), ("created", "自建歌单"), ("collected", "收藏歌单"),
     ("recent", "最近播放"), ("detail", "歌单详情"), ("downloads", "缓存与任务"),
-    ("player", "播放控制"), ("lyrics", "三行歌词与逐字高亮"), ("queue", "播放队列"),
+    ("player", "播放控制"), ("lyrics", "逐字歌词与双语翻译"), ("queue", "播放队列"),
     ("settings", "设置中心"), ("settings/display", "显示与歌词设置"),
     ("settings/playback", "播放设置"), ("settings/network", "网络与缓存设置"),
     ("settings/about", "关于与版本"), ("font-selector", "选择弹层"), ("confirm", "确认弹窗"),
