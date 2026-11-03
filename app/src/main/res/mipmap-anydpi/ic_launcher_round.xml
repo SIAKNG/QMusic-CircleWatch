@@ -1,15 +1,2 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="48dp"
-    android:height="48dp"
-    android:viewportWidth="48"
-    android:viewportHeight="48">
-    <path
-        android:fillColor="#0D1114"
-        android:pathData="M24,2a22,22 0,1 1,0 44a22,22 0,1 1,0 -44z" />
-    <path
-        android:fillColor="#78C7FF"
-        android:pathData="M18,14.2L36,10.2v17.4h-4V15.25L22,17.48V31.8h-4V14.2z" />
-    <path
-        android:fillColor="#F4F5F4"
-        android:pathData="M22,31.45c0,3.25 -2.78,5.85 -6.3,5.85 -3.12,0 -5.4,-1.72 -5.4,-4.18 0,-3.25 2.78,-5.85 6.3,-5.85 3.12,0 5.4,1.72 5.4,4.18zM36,27.45c0,3.25 -2.78,5.85 -6.3,5.85 -3.12,0 -5.4,-1.72 -5.4,-4.18 0,-3.25 2.78,-5.85 6.3,-5.85 3.12,0 5.4,1.72 5.4,4.18z" />
-</vector>
+<?xml version="1.0" encoding="utf-8"?>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/qmusic_circlewatch_icon" android:gravity="fill" android:filter="true" />

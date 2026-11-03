@@ -2,6 +2,8 @@
 
 采集日期：2026-11-01—2026-11-02。设备：OPPO OWW251，Android 11，原生截图 466 × 466。
 
+这些原生截图采集于深色圆环图标更新前，保留当时的旧版演示占位图标，没有重绘以冒充新版实机画面。当前图标见 [应用图标](../branding/qmusic-circlewatch-icon.png)。
+
 PNG 来自手表原生 ADB 截图，或从原生 `screenrecord` 录屏导出的界面帧；均保持 466 × 466 原尺寸，没有抠图、重绘或拼接。README 仅设置显示宽度。
 
 部分页面采用录屏帧，是因为本设备直接 `screencap` 偶尔遗漏静态图层。导出由 FFmpeg 完成，不重新绘制界面，不改变布局、文字、账号或配色；采集过程不用于性能测量。排查时使用的临时调试属性已恢复。
@@ -38,6 +40,10 @@ PNG 来自手表原生 ADB 截图，或从原生 `screenrecord` 录屏导出的�
 | 关于与版本 | [settings/about](screenshots/showcase/settings-about.png) |
 | 选择弹层 | [font-selector](screenshots/showcase/font-selector.png) |
 | 确认弹窗 | [confirm](screenshots/showcase/confirm.png) |
+
+## 四页应用介绍图
+
+`docs/posters` 为 2026-11-03 使用 image_gen 辅助制作的四页介绍性合成海报，基于演示页面与深色圆环图标整理。它们与上述 22 张未经重绘的原生截图分别存放，不是新一轮设备采集，也不作为逐像素排版依据。顶部明确第三方应用身份，歌词介绍强调逐字歌词与双语翻译。
 
 ## 复现
 

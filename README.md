@@ -1,9 +1,10 @@
+<p align="center"><img src="branding/qmusic-circlewatch-icon.png" width="112" alt="QMusic-CircleWatch 应用图标"></p>
 <h1 align="center">QMusic-CircleWatch</h1>
 <p align="center">QQ 音乐安卓手表版第三方应用，适用于圆形表盘。</p>
 <p align="center"><b>圆屏适配 · 逐字歌词 · 双语翻译 · 表冠与触觉反馈</b></p>
 <p align="center">
   <a href="https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/v1.0">下载 1.0</a> ·
-  <a href="#界面预览">界面预览</a> · <a href="#二创主要更新">二创更新</a> ·
+  <a href="#应用介绍图">应用介绍图</a> · <a href="#界面预览">界面预览</a> · <a href="#二创主要更新">二创更新</a> ·
   <a href="#第一次使用">使用方法</a> · <a href="#工程组成与实现">工程组成</a> ·
   <a href="CHANGELOG.md">版本记录</a>
 </p>
@@ -14,9 +15,11 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 
 当前版本 **1.0**，安装包 **QMusic-CircleWatch-1.0.apk**，独立包名 `com.qmusicwatch.round`。最低 Android 7.0；主要实机验证设备为 **OPPO OWW251，Android 11，466 × 466**。方屏保留既有布局分支，其他设备尚未逐台实测。
 
-本仓库与 Release **已公开，源码、界面展示与 1.0 安装包均可直接查看和下载**。本项目不隶属于腾讯、QQ 音乐或 OPPO；音乐与授权沿用原工程服务，不内置曲库或会员授权。
+本仓库与 Release **均为私有，仅向拥有访问权限的账号提供源码、界面展示与 1.0 安装包**。本项目不隶属于腾讯、QQ 音乐或 OPPO；音乐与授权沿用原工程服务，不内置曲库或会员授权。
 
-> 图片为本工程原生页面在 OWW251 手表上的实际渲染，使用独立离线展示包和演示数据。歌名、歌单、账号、歌词与二维码均为示例，二维码不能登录。来源见 [截图说明](docs/SCREENSHOTS.md)。
+> 四页介绍图为设计展示，使用演示内容；原生实机界面另行保留，采集于图标更新前。歌名、歌单、账号、歌词与二维码均为示例，二维码不能登录。来源见 [截图说明](docs/SCREENSHOTS.md)。
+
+2026-11-03 图标修订：采用深色圆环应用图标，适配圆形启动器并保留右侧表冠；同步精简介绍图排版。应用版本仍为 **1.0**。图标构建与裁切验证见 [图标说明](docs/ICON.md)。
 
 ## 版本更新
 
@@ -64,12 +67,30 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 | 原生短震 | OPPO 线性马达效果 302，按距离和时间节流并遵守系统开关 |
 | 流畅度 | 稳定列表测量、歌词绘制阶段推进、按实际窗口帧采样 |
 | 独立维护 | 独立包名及签名，改名保留本项目数据，隔离原版更新包 |
+| 应用标识 | 深色圆环音乐图标，按圆形启动器安全区保留外环与右侧表冠 |
 
 逐项对照见 [与原版相比改了什么](docs/UPSTREAM_DIFF.md)。
 
+## 应用介绍图
+
+四页围绕圆屏布局、搜索与音乐库、逐字歌词与双语翻译、表冠与触觉反馈展开。顶部统一标明“QQ音乐安卓手表版 · 第三方应用”，底部保留应用名称与图标。
+
+| 圆屏音乐 | 搜索与音乐库 |
+| :---: | :---: |
+| <img src="docs/posters/01-round-music.png" width="380" alt="圆屏音乐介绍图"> | <img src="docs/posters/02-music-library.png" width="380" alt="搜索与音乐库介绍图"> |
+
+| 逐字歌词与双语翻译 | 表冠与触觉反馈 |
+| :---: | :---: |
+| <img src="docs/posters/03-lyrics.png" width="380" alt="逐字歌词与双语翻译介绍图"> | <img src="docs/posters/04-crown-controls.png" width="380" alt="表冠与触觉反馈介绍图"> |
+
+海报为 AI 辅助制作的介绍性合成画面，使用演示数据展示功能，不作为原生截图或逐像素布局依据。可在私有 Release 下载 [四页原图 ZIP](https://github.com/SIAKNG/QMusic-CircleWatch/releases/download/v1.0/QMusic-CircleWatch-1.0-posters.zip)。
+
 ## 界面预览
 
-点击图片可查看原始 PNG。长页面展示首屏，完整选项仍可在应用内滚动查看。截图是原生实机渲染，不是重新绘制的概念图。
+<details>
+<summary>查看图标更新前的原生实机界面记录（22 张）</summary>
+
+以下为 2026-11-01—2026-11-02 在 OWW251 上采集的原生截图，保留当时旧版占位图标，未为更新图标而重绘。长页面展示首屏，完整选项可在应用内滚动查看。
 
 ### 首页与播放入口
 
@@ -121,9 +142,11 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 
 完整清单与复现方式见 [截图说明](docs/SCREENSHOTS.md)，也可打开本地 [界面浏览页](docs/preview/index.html)。静态图片不能体现动画帧率与振动强度。
 
+</details>
+
 ## 第一次使用
 
-1. 从本仓库 Release 下载 `QMusic-CircleWatch-1.0.apk` 并安装到手表。
+1. 使用拥有访问权限的 GitHub 账号，从本仓库 Release 下载 `QMusic-CircleWatch-1.0.apk` 并安装到手表。
 2. 已安装本二创版本时可直接覆盖安装，包名与签名保持一致；原作者版本可与本应用并存，需在本应用授权。
 3. 连接可正常上网的 Wi-Fi 或热点，在登录页按提示扫码；图库中的示例二维码不能使用。
 4. 从发现、搜索或音乐库进入歌曲，点击底部播放胶囊打开播放器，切换到歌词页。
@@ -141,6 +164,9 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 - [构建、签名和离线展示](docs/BUILDING.md)
 - [详细功能说明](docs/FEATURES.md)
 - [二创与原版对照](docs/UPSTREAM_DIFF.md)
+- [应用图标与圆形裁切验证](docs/ICON.md)
+
+最新工程以 [main 分支](https://github.com/SIAKNG/QMusic-CircleWatch/tree/main) 为准；`v1.0` 标签保留最初工程基线，Release 中同名 APK 已包含当前 1.0 图标修订。
 
 ```powershell
 .\gradlew.bat :app:assembleDebug
@@ -150,6 +176,8 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 需要 JDK 21、Android SDK 36。正式包还需维护者本地签名；仓库不包含私钥、口令、个人账号与原始设备日志。
 
 ## 验证与服务边界
+
+2026-11-03 图标修订通过 **224 项自动测试**，Lint 0 错误、56 警告；Android 原生圆形启动器在多种尺寸下均完整保留外环与表冠。此次未重新安装到手表，早期实机记录与本次自动验证分开说明，详见 [验证说明](docs/VERIFICATION.md)。
 
 实机已验证搜索、在线播放、暂停、歌词、迷你播放器切换、时间区与列表。用户已确认实体表冠正常滚动、有短震，快速或反向操作不再抽动。演示数据不能代替线上业务验收。
 
