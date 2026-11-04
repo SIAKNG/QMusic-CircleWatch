@@ -141,7 +141,7 @@ private fun libraryRoute(section: LibrarySection) = "library/${section.routeValu
 
 /**
  * OPPO secondary pages return with a right swipe from the left edge.
- * Horizontal pagers (home and player) opt out at the call site.
+ * Pagers keep their ordinary swipes outside the left-edge back gesture.
  */
 internal fun shouldTriggerSwipeBack(
     totalDx: Float,
@@ -151,30 +151,6 @@ internal fun shouldTriggerSwipeBack(
 ): Boolean = thresholdPx > 0f && (
     (startX <= leftEdgePx && totalDx >= thresholdPx)
     )
-
-private fun Modifier.watchSwipeBack(
-    enabled: Boolean,
-    thresholdPx: Float,
-    leftEdgePx: Float,
-    onBack: () -> Unit,
-): Modifier = if (!enabled) this else pointerInput(enabled, thresholdPx, leftEdgePx) {
-    var totalDx = 0f
-    var startX = 0f
-    detectHorizontalDragGestures(
-        onDragStart = { offset ->
-            startX = offset.x
-            totalDx = 0f
-        },
-        onHorizontalDrag = { change, dragAmount ->
-            totalDx += dragAmount
-            change.consume()
-        },
-        onDragEnd = {
-            if (shouldTriggerSwipeBack(totalDx, startX, leftEdgePx, thresholdPx)) onBack()
-        },
-        onDragCancel = { totalDx = 0f },
-    )
-}
 
 private fun nextPlayMode(mode: String) = when (mode) { "sequential" -> "repeat_one"; "repeat_one" -> "loop_all"; "loop_all" -> "shuffle"; else -> "sequential" }
 private fun playModeName(mode: String) = when (mode) { "repeat_one" -> "单曲循环"; "loop_all" -> "列表循环"; "shuffle" -> "随机播放"; else -> "顺序播放" }
@@ -203,7 +179,9 @@ internal fun lyricIndexClosestToCenter(
 internal fun lyricCenterScrollOffset(viewportStart: Int, viewportEnd: Int, itemSize: Int): Int {
     val viewportSize = viewportEnd - viewportStart
     if (viewportSize <= 0 || itemSize <= 0) return 0
-    val desiredItemStart = viewportStart + (viewportSize - itemSize) / 2
+    // Oversized lyrics start below the clock instead of centering halfway
+    // through their text. The entire item remains available for manual scroll.
+    val desiredItemStart = viewportStart + maxOf((viewportSize - itemSize) / 2, viewportSize / 8)
     return -desiredItemStart
 }
 
@@ -508,7 +486,11 @@ class MainActivity : ComponentActivity() {
     val swipeThresholdPx = with(density) { 54.dp.toPx() }
     val swipeLeftEdgePx = with(density) { 48.dp.toPx() }
     val currentRoute = backStack?.destination?.route
-    val swipeBackEnabled = currentRoute != null && currentRoute != "home" && currentRoute != "player" && nav.previousBackStackEntry != null
+    val swipeBackEnabled = currentRoute != null
+    val backActivity = androidx.activity.compose.LocalActivity.current as? ComponentActivity
+    val navigateBack = rememberWatchBackAction(nav) {
+        backActivity?.onBackPressedDispatcher?.onBackPressed()
+    }
     var dismissedAnnouncements by remember { mutableStateOf(emptySet<String>()) }
     var dismissedUpdateId by remember { mutableLongStateOf(0L) }
     var pendingAutomaticInstallId by rememberSaveable { mutableLongStateOf(0L) }
@@ -626,19 +608,19 @@ class MainActivity : ComponentActivity() {
                     enabled = swipeBackEnabled,
                     thresholdPx = swipeThresholdPx,
                     leftEdgePx = swipeLeftEdgePx,
-                    onBack = { nav.popBackStack() },
+                    onBack = navigateBack,
                 ),
             enterTransition = {
-                fadeIn(tween(180)) + slideInHorizontally(tween(180)) { it / 12 }
+                fadeIn(tween(110))
             },
             exitTransition = {
-                fadeOut(tween(140)) + slideOutHorizontally(tween(160)) { -it / 16 }
+                fadeOut(tween(90))
             },
             popEnterTransition = {
-                fadeIn(tween(180)) + slideInHorizontally(tween(180)) { -it / 12 }
+                fadeIn(tween(110))
             },
             popExitTransition = {
-                fadeOut(tween(140)) + slideOutHorizontally(tween(160)) { it / 16 }
+                fadeOut(tween(90))
             },
         ) {
             composable("home") { val pageState by vm.state.collectAsStateWithLifecycle(); HomeScreen(nav, pageState, vm, dailyCount) }
@@ -657,6 +639,8 @@ class MainActivity : ComponentActivity() {
                 PlayerScreen(
                     track = pageState.currentTrack,
                     lyrics = pageState.lyrics,
+                    lyricsLoading = pageState.lyricsLoading,
+                    lyricsError = pageState.lyricsError,
                     vm = vm,
                     playMode = playMode,
                     lyricSize = lyricSize,
@@ -1062,8 +1046,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     val names = linkedMapOf("track" to "歌曲", "playlist" to "歌单", "artist" to "歌手", "album" to "专辑")
     WatchLazyColumn(
         Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding).imePadding(),
-        verticalArrangement = Arrangement.spacedBy(dimensions.itemSpacing),
-    ) {
+        verticalArrangement = Arrangement.spacedBy(dimensions.itemSpacing), pinnedTitle = "搜索音乐", onPinnedBack = { nav.popBackStack() }) {
         item { SettingsHeader("搜索音乐", { nav.popBackStack() }) }
         item {
             WatchSearchField(query, { query = it }, "输入歌曲或歌手", Modifier.fillMaxWidth(),
@@ -1126,6 +1109,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
         Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding),
         contentPadding = PaddingValues(bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
+        pinnedTitle = pageTitle, onPinnedBack = { nav.popBackStack() },
     ) {
         when (section) {
             LibrarySection.Liked -> {
@@ -1181,7 +1165,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     deleting?.let { playlist -> WatchDialog(onDismissRequest = { deleting = null }, title = { Text("删除歌单？") }, text = { Text("将从 QQ 音乐永久删除“${playlist.title}”，歌曲本身不会删除。") }, confirmButton = { WatchConfirmButton({ vm.deletePlaylist(playlist.directoryId); deleting = null }) { Text("确认删除", color = MaterialTheme.colorScheme.error) } }, dismissButton = { WatchCancelButton({ deleting = null }) { Text("取消") } }) }
 }
 
-@Composable internal fun TrackListScreen(title: String, tracks: List<Track>, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding)) {
+@Composable internal fun TrackListScreen(title: String, tracks: List<Track>, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), pinnedTitle = title, onPinnedBack = onBack) {
     item { SettingsHeader(title, onBack) }; items(tracks, key = { it.id }) { TrackRow(it, vm, queue = tracks, playlists = playlists) }
 }
 
@@ -1194,7 +1178,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     val locked = downloads.filter { it.ownerAccountId != vm.accountId }
     val totalBytes = own.sumOf { item -> maxOf(item.downloadedBytes, java.io.File(item.filePath).takeIf { item.status == "complete" && it.exists() }?.length() ?: 0L) }
     val lockedBytes = locked.sumOf { item -> maxOf(item.downloadedBytes, java.io.File(item.filePath).takeIf { item.status == "complete" && it.exists() }?.length() ?: 0L) }
-    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp), pinnedTitle = "离线缓存", onPinnedBack = onBack) {
         item { SettingsHeader("离线缓存", onBack) }
         item { Row(Modifier.fillMaxWidth().height(30.dp), verticalAlignment = Alignment.CenterVertically) { Text("%.1f MB · ${own.size} 首".format(totalBytes / 1024f / 1024f), Modifier.weight(1f), color = WatchTextSecondary, fontSize = 10.sp); TextButton(vm::deleteInvalidDownloads, contentPadding = PaddingValues(horizontal = 5.dp)) { Text("清理失效", fontSize = 10.sp) } } }
         if (locked.isNotEmpty()) item { WatchListRow("其他账号缓存已锁定", "${locked.size} 首 · %.1f MB".format(lockedBytes / 1024f / 1024f), trailing = { WatchIconButton(Icons.Default.Delete, "删除全部锁定缓存", tint = MaterialTheme.colorScheme.error) { confirmDeleteLocked = true } }) }
@@ -1240,6 +1224,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     playbackLoading: Boolean,
     profile: UserProfile?, profileLoaded: Boolean, playlists: List<MusicCollection>, liked: Boolean,
     openQueue: () -> Unit, onBack: () -> Unit, initialPage: Int = 0,
+    lyricsLoading: Boolean = false, lyricsError: String? = null,
 ) {
     val dimensions = LocalWatchDimensions.current
     if (track == null) return BoxWithConstraints(
@@ -1278,7 +1263,10 @@ private fun decodeServerQrImage(value: String) = runCatching {
     var showModeDialog by remember(track.id) { mutableStateOf(false) }
     var showOptionsDialog by remember(track.id) { mutableStateOf(false) }
     val effectiveLiked = selectedLike ?: liked
-    val playerAccent = WatchAccent
+    val cachedArtworkAccent by vm.artworkAccent.collectAsStateWithLifecycle()
+    val playerAccent = rememberArtworkAccent(track.artworkUrl, cachedArtworkAccent) { url, argb ->
+        vm.cacheArtworkAccent(url, argb)
+    }
     val centeredLyricIndex by remember(listState) {
         derivedStateOf {
             val layout = listState.layoutInfo
@@ -1295,6 +1283,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
         centeredLyricIndex.takeIf { it >= 0 } ?: active
     } else active
     val pager = rememberPagerState(initialPage = initialPage) { 2 }
+    LaunchedEffect(track.id, pager.settledPage) { vm.ensureLyrics() }
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val deviceVolume by vm.deviceVolume.collectAsStateWithLifecycle()
@@ -1377,6 +1366,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
         var elapsed = 0L
         val interval = if (lowPowerPlayer) 1_000L else 200L
         while (true) {
+            if (pager.isScrollInProgress) { delay(80); continue }
             val (playingNow, positionNow, durationNow) = vm.playbackSnapshot()
             position = positionNow; duration = durationNow; playing = playingNow
             elapsed += interval
@@ -1403,9 +1393,8 @@ private fun decodeServerQrImage(value: String) = runCatching {
             item = layout.visibleItemsInfo.firstOrNull { it.index == index }
         }
         item ?: return
-        val viewportCenter = (layout.viewportStartOffset + layout.viewportEndOffset) / 2f
-        val itemCenter = item.offset + item.size / 2f
-        val delta = itemCenter - viewportCenter
+        val desiredStart = -lyricCenterScrollOffset(layout.viewportStartOffset, layout.viewportEndOffset, item.size)
+        val delta = (item.offset - desiredStart).toFloat()
         if (abs(delta) < 1f) return
         if (lyricAnimation == "off") {
             listState.scrollBy(delta)
@@ -1425,8 +1414,8 @@ private fun decodeServerQrImage(value: String) = runCatching {
             manualLyricSelection = false
         }
     }
-    LaunchedEffect(track.id, active, lyrics.size, manualLyricSelection) {
-        if (active >= 0 && lyrics.isNotEmpty() && !manualLyricSelection) {
+    LaunchedEffect(track.id, active, lyrics.size, manualLyricSelection, pager.settledPage, pager.isScrollInProgress) {
+        if (pager.settledPage == 1 && !pager.isScrollInProgress && active >= 0 && lyrics.isNotEmpty() && !manualLyricSelection) {
             centerLyric(active)
         }
     }
@@ -1476,8 +1465,13 @@ private fun decodeServerQrImage(value: String) = runCatching {
                         ) {
                             if (lyrics.isEmpty()) item {
                                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("暂无歌词", color = WatchTextSecondary, fontSize = 14.sp)
-                                    TextButton(vm::reloadLyrics) { Text("重新加载") }
+                                    if (lyricsLoading) {
+                                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                        Text("正在加载歌词…", color = WatchTextSecondary, fontSize = 13.sp)
+                                    } else {
+                                        Text(lyricsError ?: "暂无歌词", color = WatchTextSecondary, fontSize = 14.sp)
+                                        TextButton(vm::reloadLyrics) { Text("重新加载") }
+                                    }
                                 }
                             }
                             items(lyrics.size, key = { index -> "${track.id}:$index" }) { index ->
@@ -1526,6 +1520,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                                             emphasized = emphasizeLine,
                                             color = when {
                                                 isPlaybackLine && karaokeProgress == null -> playerAccent
+                                                isPlaybackLine -> Color.White
                                                 else -> WatchTextSecondary
                                             },
                                             renderProgress = karaokeProgress,
@@ -1587,7 +1582,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                                         modifier = Modifier.size(60.dp), color = playerAccent,
                                         strokeWidth = 2.dp, trackColor = WatchDivider)
                                     WatchIconButton(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        if (playing) "暂停" else "播放", buttonSize = 52.dp, containerColor = playerAccent,
+                                        if (playing) "暂停" else "播放", buttonSize = 52.dp, containerColor = playerAccent, tint = Color.Black,
                                         onClick = { if (playing) vm.pausePlayback() else vm.resumePlayback() })
                                     if (playbackLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                                 }
@@ -2028,7 +2023,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     }
 }
 
-@Composable internal fun DetailScreen(detail: CollectionDetail?, editableDirectoryId: String?, loading: Boolean, error: String?, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp)) {
+@Composable internal fun DetailScreen(detail: CollectionDetail?, editableDirectoryId: String?, loading: Boolean, error: String?, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), pinnedTitle = detail?.title ?: "歌单详情", onPinnedBack = onBack) {
     item {
         Row(
             Modifier.fillMaxWidth()
@@ -2250,8 +2245,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
 }
 
 @Composable internal fun SettingsCenter(nav: NavHostController, onBack: () -> Unit) = WatchLazyColumn(
-    Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
-) {
+    Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp), pinnedTitle = "设置中心", onPinnedBack = onBack) {
     item { SettingsHeader("设置中心", onBack) }
     item { SettingsModule("显示与主题", null, Icons.Default.Palette) { nav.navigate("settings/display") } }
     item { SettingsModule("播放与缓存", null, Icons.Default.PlayCircle) { nav.navigate("settings/playback") } }
@@ -2269,8 +2263,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     WatchLazyColumn(
         Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding),
         contentPadding = PaddingValues(bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
+        verticalArrangement = Arrangement.spacedBy(3.dp), pinnedTitle = "显示与主题", onPinnedBack = onBack) {
         item { SettingsHeader("显示与主题", onBack) }
         item { SettingsSectionLabel("屏幕") }
         item { SettingsValueRow("界面大小", uiSizeName, Icons.Default.AspectRatio) { selector = "ui" } }
@@ -2311,7 +2304,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
         profile?.isVipActive() == true -> "${qualityLabel(quality)} · ${profile.vipName.ifBlank { "音乐会员" }}"
         else -> "${qualityLabel(quality)} · 以歌曲可用资源为准"
     }
-    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp), pinnedTitle = "播放与缓存", onPinnedBack = onBack) {
         item { SettingsHeader("播放与缓存", onBack) }
         item { SettingsSectionLabel("音频") }
         item { SettingsValueRow("默认音质", qualitySummary, Icons.Default.Tune) { showQualityDialog = true } }
@@ -2363,7 +2356,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     var confirmUpload by remember { mutableStateOf(false) }
     var showDailyDialog by rememberSaveable { mutableStateOf(false) }
     val saveLog = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let { runCatching { AppLog.copyTo(context, it) } } }
-    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp), pinnedTitle = "内容与网络", onPinnedBack = onBack) {
         item { SettingsHeader("内容与网络", onBack) }
         item { SettingsSectionLabel("推荐") }
         item { SettingsValueRow("每日推荐显示数量", "$dailyCount 首", Icons.Default.Recommend) { showDailyDialog = true } }
@@ -2415,7 +2408,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
 
 @Composable internal fun AnnouncementsScreen(items: List<ControlAnnouncement>, seen: Set<String>, vm: AppViewModel, onBack: () -> Unit) {
     LaunchedEffect(items.map(ControlAnnouncement::id)) { items.forEach { vm.markAnnouncementSeen(it.id) } }
-    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp), pinnedTitle = "公告", onPinnedBack = onBack) {
         item { SettingsHeader("公告", onBack) }
         if (items.isEmpty()) item { Box(Modifier.fillParentMaxHeight(.7f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("暂无公告", color = Color.Gray) } }
         items(items, key = ControlAnnouncement::id) { announcement ->
@@ -2444,7 +2437,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             .onSuccess { externalError = null }
             .onFailure { error -> AppLog.write("INTENT", "${error.javaClass.simpleName}:${error.message.orEmpty()}"); externalError = failureMessage }
     }
-    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp), pinnedTitle = "关于", onPinnedBack = onBack) {
     item { SettingsHeader("关于", onBack) }
     item { WatchListRow("QMusic-CircleWatch", "版本 ${BuildConfig.VERSION_NAME} · 第三方非官方客户端", leading = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(Icons.Default.MusicNote, null, Modifier.size(19.dp), tint = WatchAccent) } }) }
     item { WatchListRow("原项目作者", "Ronan", leading = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(Icons.Default.Code, null, Modifier.size(19.dp), tint = WatchAccent) } }) }
@@ -2591,7 +2584,7 @@ private fun formatFileSize(bytes: Long): String = when {
     val listState = rememberLazyListState()
     val haptics = LocalHapticFeedback.current
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
-        workingEntries = moveQueueEntry(workingEntries, from.index, to.index)
+        workingEntries = moveQueueEntry(workingEntries, from.index - 2, to.index - 2)
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
     val currentTrackId = state.currentTrack?.id ?: queue.getOrNull(currentIndex)?.id
@@ -2603,52 +2596,25 @@ private fun formatFileSize(bytes: Long): String = when {
         }
     }
     val queueRowHeight = (dimensions.trackRowHeight - 4.dp).coerceAtLeast(40.dp)
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding).padding(top = if (dimensions.isRound) 36.dp else 0.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+    val pageTitle = "播放列表 · ${workingEntries.size}"
+    WatchLazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding),
+        state = listState,
+        userScrollEnabled = !dragInProgress,
+        contentPadding = PaddingValues(bottom = if (dimensions.isRound) 80.dp else 4.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+        pinnedTitle = pageTitle, onPinnedBack = onBack,
+        pinnedAction = { WatchIconButton(Icons.Default.MoreVert, "播放列表操作", buttonSize = 30.dp) { queueMenu = true } },
     ) {
-        Row(
-            Modifier.fillMaxWidth()
-                .height(30.dp)
-                .padding(horizontal = 0.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            WatchIconButton(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                "返回",
-                buttonSize = 30.dp,
-                onClick = onBack,
-            )
-            Text(
-                "播放列表 · ${workingEntries.size}",
-                Modifier.weight(1f).padding(horizontal = 4.dp),
-                fontSize = (dimensions.bodySp + 2f).sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            WatchIconButton(
-                Icons.Default.MoreVert,
-                "播放列表操作",
-                buttonSize = 30.dp,
-                onClick = { queueMenu = true },
-            )
+        item(key = "queue-header", contentType = "header") {
+            WatchPageHeader(pageTitle, onBack, action = {
+                WatchIconButton(Icons.Default.MoreVert, "播放列表操作", buttonSize = 32.dp) { queueMenu = true }
+            })
         }
-        WatchSearchField(
-            query,
-            { query = it },
-            "筛选播放列表",
-            Modifier.fillMaxWidth(),
-            leadingIcon = Icons.Default.Search,
-            heightOverride = 34.dp,
-        )
-        WatchLazyColumn(
-            Modifier.fillMaxWidth().weight(1f),
-            state = listState,
-            roundInsets = false,
-            contentPadding = PaddingValues(top = 1.dp, bottom = if (dimensions.isRound) 80.dp else 4.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
-        ) {
+        item(key = "queue-search", contentType = "search") {
+            WatchSearchField(query, { query = it }, "筛选播放列表", Modifier.fillMaxWidth(),
+                leadingIcon = Icons.Default.Search, heightOverride = 34.dp)
+        }
             if (workingEntries.isEmpty()) item {
                 Box(
                     Modifier.fillParentMaxHeight().fillMaxWidth(),
@@ -2691,11 +2657,9 @@ private fun formatFileSize(bytes: Long): String = when {
                     }
                     Surface(
                         modifier = Modifier
-                            .animateItem(
-                                fadeInSpec = null,
-                                placementSpec = tween(160),
-                                fadeOutSpec = null,
-                            )
+                            .then(if (dragInProgress) Modifier.animateItem(
+                                fadeInSpec = null, placementSpec = tween(140), fadeOutSpec = null,
+                            ) else Modifier)
                             .height(queueRowHeight),
                         shape = CircleShape,
                         color = if (track.id == currentTrackId) {
@@ -2767,7 +2731,6 @@ private fun formatFileSize(bytes: Long): String = when {
                     }
                 }
             }
-        }
     }
     if (queueMenu) WatchDialog(
         onDismissRequest = { queueMenu = false },
@@ -2874,6 +2837,10 @@ private fun formatFileSize(bytes: Long): String = when {
 ) {
     if (track == null) return
     val artworkRequest = rememberArtworkImageRequest(track.artworkUrl, 96)
+    val cachedArtworkAccent by vm.artworkAccent.collectAsStateWithLifecycle()
+    val accent = rememberArtworkAccent(track.artworkUrl, cachedArtworkAccent) { url, argb ->
+        vm.cacheArtworkAccent(url, argb)
+    }
     val controller = LocalMiniPlayerController.current ?: remember { MiniPlayerController() }
     var position by remember(track.id) { mutableLongStateOf(0L) }
     var duration by remember(track.id) { mutableLongStateOf(0L) }
@@ -2895,7 +2862,7 @@ private fun formatFileSize(bytes: Long): String = when {
     WatchMiniPlayer(
         title = track.title, subtitle = preview, artwork = artworkRequest,
         playing = playing, progress = playbackProgress(position, duration),
-        controller = controller, modifier = modifier,
+        controller = controller, modifier = modifier, accent = accent,
         onPlayPause = { if (playing) vm.pausePlayback() else vm.resumePlayback() },
         onOpenPlayer = open,
     )

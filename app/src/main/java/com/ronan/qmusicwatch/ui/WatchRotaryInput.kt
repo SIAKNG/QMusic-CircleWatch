@@ -84,7 +84,8 @@ internal class CrownScrollController(private val filter: CrownScrollFilter) {
         return true
     }
     internal fun hasPending() = filter.hasPending
-    internal fun takeFrame() = filter.takeFrame()
+    internal fun takeImmediate() = filter.takeImmediate()
+    internal fun takeFrame(nowMs: Long) = filter.takeFrame(nowMs)
     internal fun clear() = filter.clear()
     internal fun discardPending() = filter.discardPending()
 }
@@ -111,8 +112,14 @@ internal fun rememberCrownScroll(
             launch {
                 try {
                     state.scroll(MutatePriority.UserInput) {
-                        while (controller.hasPending()) withFrameNanos {
-                            val consumed = scrollBy(controller.takeFrame())
+                        val initial = controller.takeImmediate()
+                        val firstConsumed = scrollBy(initial)
+                        if (kotlin.math.abs(initial) > .1f && kotlin.math.abs(firstConsumed) < .05f) controller.clear()
+                        if (pulse.moved(firstConsumed, SystemClock.uptimeMillis())) haptics.tick()
+                        while (controller.hasPending()) withFrameNanos { frameTime ->
+                            val requested = controller.takeFrame(frameTime / 1_000_000)
+                            val consumed = scrollBy(requested)
+                            if (kotlin.math.abs(requested) > .1f && kotlin.math.abs(consumed) < .05f) controller.clear()
                             if (pulse.moved(consumed, SystemClock.uptimeMillis())) haptics.tick()
                         }
                     }

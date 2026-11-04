@@ -50,6 +50,7 @@ class SettingsStoreTest {
         assertEquals(-18, lyricCenterScrollOffset(viewportStart = -189, viewportEnd = 291, itemSize = 66))
         assertEquals(0, lyricCenterScrollOffset(viewportStart = -207, viewportEnd = 273, itemSize = 66))
         assertEquals(0, lyricCenterScrollOffset(viewportStart = 0, viewportEnd = 0, itemSize = 60))
+        assertEquals(-60, lyricCenterScrollOffset(viewportStart = 0, viewportEnd = 480, itemSize = 900))
     }
 
     @Test fun lyricProgressUsesAClampedFeatheredBand() {

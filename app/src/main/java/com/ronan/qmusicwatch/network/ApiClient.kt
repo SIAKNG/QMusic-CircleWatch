@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -818,12 +819,14 @@ class ApiClient(
     }
 
     suspend fun lyrics(id: String): LyricsData = withContext(Dispatchers.IO) {
-        coroutineScope {
+        supervisorScope {
             val textTask = async {
+                runCatching {
                 webApi(
                     "music.musichallSong.PlayLyricInfo", "GetPlayLyricInfo",
                     obj("songMid" to id, "crypt" to 0, "qrc" to 0, "qrc_t" to 0, "trans" to 1, "trans_t" to 0, "roma" to 0, "roma_t" to 0, "type" to 1, "ct" to 24, "cv" to 4_747_474),
                 )
+                }.onFailure { if (it is CancellationException) throw it }
             }
             val qrcTask = async {
                 runCatching {
@@ -833,14 +836,17 @@ class ApiClient(
                         callTimeoutMs = 2_500,
                     ).string("lyric").takeIf { it.isNotBlank() }?.let(QqQrcDecoder::decode)
                 }.onFailure {
+                    if (it is CancellationException) throw it
                     AppLog.write("LYRICS", "qrc ${it.javaClass.simpleName}:${it.message.orEmpty()}")
                 }.getOrNull()
             }
-            val data = textTask.await()
+            val textResult = textTask.await()
             val qrc = qrcTask.await()
+            val data = textResult.getOrNull()
+            if (data == null && qrc.isNullOrBlank()) throw (textResult.exceptionOrNull() ?: IOException("歌词请求失败"))
             LyricsData(
-                decodeText(data.string("lyric")),
-                decodeText(data.string("trans")).ifBlank { null },
+                decodeText(data?.string("lyric").orEmpty()),
+                decodeText(data?.string("trans").orEmpty()).ifBlank { null },
                 qrc,
             )
         }

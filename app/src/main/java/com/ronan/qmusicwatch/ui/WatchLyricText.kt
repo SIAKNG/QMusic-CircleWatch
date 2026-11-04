@@ -125,9 +125,9 @@ internal fun WatchLyricText(
         // The weight also stays fixed: switching it can change wrapping mid-scroll.
         fontWeight = FontWeight.Bold,
         textAlign = if (centered) TextAlign.Center else TextAlign.Start,
-        maxLines = 3,
+        maxLines = Int.MAX_VALUE,
         softWrap = true,
-        overflow = TextOverflow.Ellipsis,
+        overflow = TextOverflow.Clip,
         onTextLayout = { textLayout = it; onTextLayout(it) },
     )
 }

@@ -297,6 +297,7 @@ internal fun playbackMediaItem(id: String, uri: String, title: String, artist: S
     val safeArtwork = safeLocalOrArtworkUri(artwork)
     return MediaItem.Builder().setMediaId(id).setUri(playableUri).setMediaMetadata(
         MediaMetadata.Builder().setTitle(title).setArtist(artist)
+            .setIsPlayable(true).setIsBrowsable(false).setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .apply { if (safeArtwork.isNotBlank()) setArtworkUri(android.net.Uri.parse(safeArtwork)) }.build()
     ).build()
 }

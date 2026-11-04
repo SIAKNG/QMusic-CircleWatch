@@ -12,6 +12,8 @@ import com.ronan.qmusicwatch.download.cachedArtworkFile
 import com.ronan.qmusicwatch.download.cachedLyricsFile
 import com.ronan.qmusicwatch.lyrics.LrcParser
 import com.ronan.qmusicwatch.lyrics.LyricLine
+import com.ronan.qmusicwatch.lyrics.LyricRequestCoordinator
+import com.ronan.qmusicwatch.lyrics.LyricRequestKey
 import com.ronan.qmusicwatch.model.*
 import com.ronan.qmusicwatch.network.normalizeLibraryData
 import com.ronan.qmusicwatch.network.*
@@ -49,6 +51,7 @@ data class AppUiState(
     val qrStatus: String = "", val qrImageBase64: String = "", val qrMimeType: String = "", val qrExpiresAt: Long = 0,
     val currentTrack: Track? = null, val activeStreamQuality: String = QUALITY_STANDARD,
     val lyrics: List<LyricLine> = emptyList(), val pendingSpeakerTrack: Track? = null, val playbackLoading: Boolean = false,
+    val lyricsLoading: Boolean = false, val lyricsError: String? = null,
     val detail: CollectionDetail? = null, val detailDirectoryId: String? = null,
     val detailLoading: Boolean = false, val detailError: String? = null, val playEvent: Long = 0,
     val diagnostic: String? = null, val profile: UserProfile? = null, val profileLoaded: Boolean = false,
@@ -210,6 +213,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var qrLoginJob: Job? = null
     private var sessionRestoreJob: Job? = null
     private val json = Json { ignoreUnknownKeys = true }
+    private val lyricRequests = LyricRequestCoordinator(viewModelScope,
+        load = { key, fresh -> loadLyricsForRequest(key, fresh) },
+        publish = { key, result ->
+            if (accountId == key.owner && sessionGeneration == key.sessionGeneration && _state.value.currentTrack?.id == key.trackId) {
+                _state.update { current -> current.copy(
+                    lyrics = if (result.loading || result.failed) current.lyrics else result.lines,
+                    lyricsLoading = result.loading,
+                    lyricsError = if (result.failed) "歌词加载失败，请检查网络后重试" else null,
+                ) }
+            }
+        })
     private val sessionReady = CompletableDeferred<Unit>()
     private val profileCacheReady = CompletableDeferred<Unit>()
     private val snapshotMutex = Mutex()
@@ -278,6 +292,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 snapshot.track?.let { track ->
                     _state.update { it.copy(currentTrack = track, activeStreamQuality = lastStreamQuality) }
                     _queueIndex.value = _queue.value.indexOfFirst { item -> item.id == track.id }
+                    ensureLyrics()
                 }
             }
         }
@@ -440,13 +455,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ?: if (uri.startsWith("file:")) Long.MAX_VALUE else 0L
             lastStreamQuality = reportedQualityId(matchingSnapshot?.quality ?: graph.settings.quality.first())
             _state.update { it.copy(currentTrack = track, activeStreamQuality = lastStreamQuality, lyrics = emptyList(), message = null) }
-            val localPath = android.net.Uri.parse(uri).takeIf { it.scheme == "file" }?.path
-            val lines = runCatching { loadLyrics(track, localPath) }
-                .onFailure { AppLog.write("LYRICS", "media key ${it.javaClass.simpleName}:${it.message.orEmpty()}") }
-                .getOrDefault(emptyList())
-            if (graph.playback.currentMediaId() == mediaId && graph.playback.currentUri() == uri) {
-                _state.update { it.copy(lyrics = lines) }
-            }
+            ensureLyrics()
         }
     }
 
@@ -566,6 +575,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             graph.vault.save(session)
             currentSession = session
             sessionGeneration++
+            lyricRequests.clear()
             searchJob?.cancel(); searchJob = null
             detailJob?.cancel(); detailJob = null; queueImportJob?.cancel(); queueImportJob = null
             _state.update { s -> s.copy(
@@ -592,6 +602,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         qualitySwitchJob?.cancel(); qualitySwitchJob = null
         clearServiceRecovery()
         searchJob?.cancel(); searchJob = null; sessionGeneration++
+        lyricRequests.clear()
         qrLoginJob?.cancel(); qrLoginJob = null
         detailJob?.cancel(); detailJob = null; queueImportJob?.cancel(); queueImportJob = null
         graph.playback.stopAndClear(); graph.vault.clear(); currentSession = null
@@ -602,7 +613,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(
             home = null, library = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
             searchTracks = emptyList(), searchCollections = emptyList(), searchCursor = null, searchLoading = false,
-            currentTrack = null, lyrics = emptyList(), pendingSpeakerTrack = null, detail = null, detailDirectoryId = null,
+            currentTrack = null, lyrics = emptyList(), lyricsLoading = false, lyricsError = null, pendingSpeakerTrack = null, detail = null, detailDirectoryId = null,
             queueImportTitle = "", queueImportTracks = emptyList(), queueImportLoading = false,
             qrStatus = "", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0,
             offlineSnapshot = false, message = "已退出，离线文件已保留并锁定",
@@ -956,6 +967,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     message = qualityFallbackMessage(requestedQuality, issuedQuality, track, it.profile),
                 )
             }
+            ensureLyrics()
             val initialPosition = restoredPosition.coerceAtLeast(0L)
             // The service can receive a load error immediately after prepare,
             // so make the new stream recoverable before handing it to Media3.
@@ -963,49 +975,54 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             graph.playback.play(track.id, uri, track.title, track.artists.joinToString(" / "), resolvedTrack.artworkUrl)
             if (initialPosition > 0 && _state.value.currentTrack?.id == track.id) graph.playback.seek(initialPosition)
             graph.db.recent().upsert(RecentEntity(track.id, owner, track.title, track.artists.joinToString(" / "), track.album, track.artworkUrl, System.currentTimeMillis()))
-            try {
-                loadLyrics(track, local?.filePath)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                AppLog.write("LYRICS", "track=${track.id} ${error.javaClass.simpleName}:${error.message.orEmpty()}")
-                emptyList()
-            }
-        }.onSuccess { parsedLyrics ->
+        }.onSuccess {
             if (_state.value.currentTrack?.id == track.id && graph.playback.currentMediaId() == track.id) {
                 restoredPosition = 0
-                _state.update { it.copy(lyrics = parsedLyrics) }
             }
         }.onFailure { error -> if (error !is CancellationException) failPlayback(error) }
         }
     }
     fun continueOnSpeaker() { _state.value.pendingSpeakerTrack?.let { requestPlay(it, true, pendingQueue) } }
     fun dismissSpeakerPrompt() = _state.update { it.copy(pendingSpeakerTrack = null) }
-    private suspend fun loadLyrics(track: Track, localAudioPath: String?): List<LyricLine> {
-        var data = withContext(Dispatchers.IO) {
-            localAudioPath?.let { cachedLyricsFile(it).takeIf(File::exists)?.let { file -> runCatching { json.decodeFromString<LyricsData>(file.readText()) }.getOrNull() } }
+    fun ensureLyrics(force: Boolean = false) {
+        val track = _state.value.currentTrack ?: return
+        val owner = accountId ?: return
+        lyricRequests.request(LyricRequestKey(owner, track.id, sessionGeneration), force)
+    }
+
+    private suspend fun loadLyricsForRequest(key: LyricRequestKey, fresh: Boolean): List<LyricLine> = withContext(Dispatchers.IO) {
+        if (accountId != key.owner || sessionGeneration != key.sessionGeneration) throw CancellationException()
+        val local = graph.db.downloads().find(key.trackId, key.owner)
+            ?.takeIf { it.status == "complete" && File(it.filePath).exists() }
+        val sidecar = local?.filePath?.let(::cachedLyricsFile)
+        val folder = File(graph.cacheDir, "lyrics").apply { mkdirs() }
+        val name = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("${key.owner}:${key.trackId}".toByteArray()).joinToString("") { "%02x".format(it) }
+        val cache = File(folder, "$name.json")
+        fun read(file: File?): LyricsData? = file?.takeIf(File::exists)?.let {
+            runCatching { json.decodeFromString<LyricsData>(it.readText()) }.getOrNull()
         }
-        if (data == null) {
-            if (!featureEnabled("lyrics")) return emptyList()
-            data = graph.api.lyrics(track.id)
-            localAudioPath?.let { path ->
-                val encoded = json.encodeToString(data)
-                withContext(Dispatchers.IO) { cachedLyricsFile(path).writeText(encoded) }
+        fun parse(data: LyricsData) = LrcParser.parse(data.original, data.translation, data.wordSync)
+        val cached = read(sidecar) ?: if (!fresh && System.currentTimeMillis() - cache.lastModified() < 7 * 86_400_000L) read(cache) else null
+        cached?.let { parse(it).takeIf(List<LyricLine>::isNotEmpty)?.let { lines -> return@withContext lines } }
+        if (!featureEnabled("lyrics")) return@withContext emptyList()
+        val data = graph.api.lyrics(key.trackId)
+        val lines = parse(data)
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        if (lines.isNotEmpty()) {
+            val encoded = json.encodeToString(data)
+            // Cache failures must not hide lyrics that have already loaded successfully.
+            runCatching {
+                cache.writeText(encoded)
+                sidecar?.writeText(encoded)
+                folder.listFiles()?.filter { it.extension == "json" }?.sortedByDescending(File::lastModified)
+                    ?.drop(16)?.forEach(File::delete)
             }
         }
-        return LrcParser.parse(data.original, data.translation, data.wordSync).also { lines ->
-            AppLog.write("LYRICS", "loaded lines=${lines.size} wordTimedLines=${lines.count { com.ronan.qmusicwatch.lyrics.hasWordTiming(it) }}")
-        }
+        AppLog.write("LYRICS", "loaded lines=${lines.size} wordTimedLines=${lines.count { com.ronan.qmusicwatch.lyrics.hasWordTiming(it) }}")
+        lines
     }
-    fun reloadLyrics() = viewModelScope.launch {
-        val track = _state.value.currentTrack ?: return@launch
-        val owner = accountId ?: return@launch fail(IllegalStateException("请先登录"))
-        val local = graph.db.downloads().find(track.id, owner)?.takeIf { it.status == "complete" && File(it.filePath).exists() }
-        _state.update { it.copy(message = "正在重新加载歌词…") }
-        runCatching { loadLyrics(track, local?.filePath) }
-            .onSuccess { lines -> _state.update { it.copy(lyrics = lines, message = if (lines.isEmpty()) "这首歌暂无歌词" else "歌词已重新加载") } }
-            .onFailure(::fail)
-    }
+    fun reloadLyrics() = ensureLyrics(force = true)
     fun cache(track: Track, groupName: String = "单曲缓存", requestedQuality: String? = null) {
         val owner = accountId ?: return fail(IllegalStateException("请先登录"))
         viewModelScope.launch {

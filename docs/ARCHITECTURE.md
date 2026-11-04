@@ -8,10 +8,10 @@
 | `AppViewModel.kt` | 会话与页面状态、搜索、曲库、播放、歌单、缓存等业务协调 |
 | `ui/RoundWatchLayout.kt` | 圆屏几何、安全区、列表缩放与时间显示 |
 | `ui/WatchRotaryInput.kt` | 可见列表注册、滚轮分发、OPPO 线性马达与系统回退 |
-| `playback/CrownScrollFilter.kt` | 表冠输入合并、限幅与反向噪声过滤 |
+| `playback/CrownScrollFilter.kt` | 表冠速度增益、短距离惯性、输入合并与反向噪声过滤 |
 | `ui/WatchMiniPlayer.kt` | 胶囊/专辑圆标状态和播放进度环 |
 | `ui/WatchLyricText.kt`、`lyrics/` | 逐字时间解析、换行文本绘制和柔和的进度边界 |
-| `playback/` | Media3 会话、服务与播放控制 |
+| `playback/` | Media3 媒体库会话、标准/应用队列命令、服务与播放控制 |
 | `network/`、`data/` | 原工程服务访问、模型、缓存和本地存储 |
 | `performance/FramePerformanceMonitor.kt` | 按实际窗口绘制帧采集性能信息 |
 | `app/src/test/`、`app/src/androidTest/` | 解析、权限/状态、布局、滚轮过滤和界面回归检查 |

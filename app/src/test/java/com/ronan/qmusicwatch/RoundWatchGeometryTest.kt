@@ -55,7 +55,8 @@ class RoundWatchGeometryTest {
     @Test fun inheritedUpdaterCannotOfferAnUpstreamApkToThisDerivative() {
         val update = kotlinx.coroutines.runBlocking { com.ronan.qmusicwatch.network.ControlPlaneClient().latestRelease() }
         assertFalse(update.hasUpdate)
-        assertEquals("1.0", update.versionName)
+        assertEquals(BuildConfig.VERSION_NAME, update.versionName)
+        assertEquals(BuildConfig.VERSION_CODE, update.versionCode)
         assertEquals("com.qmusicwatch.round", BuildConfig.APPLICATION_ID)
     }
 }

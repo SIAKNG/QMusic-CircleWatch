@@ -5,12 +5,15 @@ import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Bundle
+import android.app.PendingIntent
 import android.os.PowerManager
 import android.view.KeyEvent
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -22,6 +25,10 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.LibraryResult
 import androidx.media3.session.CommandButton
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
@@ -29,6 +36,9 @@ import androidx.media3.session.SessionResult
 import okhttp3.OkHttpClient
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
+import com.google.common.util.concurrent.Futures
+import com.google.common.collect.ImmutableList
+import com.ronan.qmusicwatch.MainActivity
 import com.ronan.qmusicwatch.QMusicApplication
 import com.ronan.qmusicwatch.nextQueueIndex
 import com.ronan.qmusicwatch.data.AppLog
@@ -175,9 +185,9 @@ private fun mediaKeyEvent(intent: Intent): KeyEvent? = if (android.os.Build.VERS
     intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
 } else intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
 
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
     private lateinit var player: ExoPlayer
-    private var session: MediaSession? = null
+    private var session: MediaLibrarySession? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true }
     private val skipMutex = Mutex()
@@ -304,8 +314,8 @@ class PlaybackService : MediaSessionService() {
             })
         }
         val mediaButtons = listOf(
-            CommandButton.Builder(CommandButton.ICON_PREVIOUS).setSessionCommand(previousCommand).setDisplayName("上一首").setSlots(CommandButton.SLOT_BACK).build(),
-            CommandButton.Builder(CommandButton.ICON_NEXT).setSessionCommand(nextCommand).setDisplayName("下一首").setSlots(CommandButton.SLOT_FORWARD).build(),
+            CommandButton.Builder(CommandButton.ICON_PREVIOUS).setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS).setDisplayName("上一首").setSlots(CommandButton.SLOT_BACK).build(),
+            CommandButton.Builder(CommandButton.ICON_NEXT).setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT).setDisplayName("下一首").setSlots(CommandButton.SLOT_FORWARD).build(),
         )
         val availablePlayerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
             .buildUpon()
@@ -315,10 +325,24 @@ class PlaybackService : MediaSessionService() {
             .add(Player.COMMAND_ADJUST_DEVICE_VOLUME)
             .add(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)
             .build()
-        session = MediaSession.Builder(this, player).setMediaButtonPreferences(mediaButtons).setCallback(object : MediaSession.Callback {
+        val systemPlayer = SystemMediaPlayer(player) { direction -> requestSkip(direction); Unit }
+        session = MediaLibrarySession.Builder(this, systemPlayer, object : MediaLibrarySession.Callback {
+            override fun onGetLibraryRoot(
+                session: MediaLibrarySession, browser: MediaSession.ControllerInfo, params: LibraryParams?,
+            ): ListenableFuture<LibraryResult<MediaItem>> = Futures.immediateFuture(LibraryResult.ofItem(
+                MediaItem.Builder().setMediaId("qmusic.root").setMediaMetadata(
+                    MediaMetadata.Builder().setTitle("QMusic-CircleWatch").setIsBrowsable(true).setIsPlayable(false)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()).build(), params))
+
+            override fun onGetChildren(
+                session: MediaLibrarySession, browser: MediaSession.ControllerInfo, parentId: String,
+                page: Int, pageSize: Int, params: LibraryParams?,
+            ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> =
+                Futures.immediateFuture(LibraryResult.ofItemList(emptyList<MediaItem>(), params))
+
             override fun onConnect(mediaSession: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
                 MediaSession.ConnectionResult.AcceptedResultBuilder(mediaSession)
-                    .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon().add(previousCommand).add(nextCommand).build())
+                    .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(previousCommand).add(nextCommand).build())
                     .setAvailablePlayerCommands(availablePlayerCommands)
                     .setMediaButtonPreferences(mediaButtons)
                     .build()
@@ -382,7 +406,11 @@ class PlaybackService : MediaSessionService() {
                 }
                 return result
             }
-        }).build()
+        }).setMediaButtonPreferences(mediaButtons)
+            .setSessionActivity(PendingIntent.getActivity(this, 0,
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .build()
         ContextCompat.registerReceiver(this, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED)
         runCatching { connectivity.registerDefaultNetworkCallback(networkCallback) }
             .onFailure { AppLog.write("PLAYER_SERVICE", "network-callback ${it.javaClass.simpleName}") }

@@ -59,6 +59,52 @@ class RoundComposeRegressionTest {
         }
     }
 
+    @Test fun scrollingKeepsThePlaylistNameAndBackButtonBelowTheClock() {
+        var wentBack = false
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                PreviewView()
+                Box(Modifier.fillMaxSize()) {
+                    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        pinnedTitle = "夜间音乐歌单", onPinnedBack = { wentBack = true }) {
+                        item { WatchPageHeader("夜间音乐歌单", { wentBack = true }) }
+                        items((1..80).toList()) { n -> WatchListRow("歌曲 $n", "歌手") }
+                    }
+                    OppoRoundClock(Modifier.align(Alignment.TopCenter))
+                }
+            }
+        }
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(30)
+        compose.onNodeWithTag("pinned-list-header").assertIsDisplayed()
+        assertEquals(20.dp, compose.onNodeWithTag("pinned-list-header").getUnclippedBoundsInRoot().top)
+        compose.onNodeWithText("夜间音乐歌单").assertIsDisplayed()
+        preview("pinned-playlist-header-round")
+        compose.onNodeWithContentDescription("返回").performClick()
+        compose.runOnIdle { assertTrue(wentBack) }
+    }
+
+    @Test fun queueSearchScrollsAwayWhileTheCompactTitleRemainsAndReturnsAtTop() {
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                PreviewView()
+                WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                    pinnedTitle = "播放列表", onPinnedBack = {}) {
+                    item { WatchPageHeader("播放列表", {}) }
+                    item { WatchSearchField("", {}, "筛选播放列表", Modifier.fillMaxWidth(), heightOverride = 34.dp) }
+                    items((1..80).toList()) { n -> WatchListRow("歌曲 $n", "歌手") }
+                }
+            }
+        }
+        compose.onNodeWithText("筛选播放列表").assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(30)
+        compose.onNodeWithText("筛选播放列表").assertDoesNotExist()
+        compose.onNodeWithText("播放列表").assertIsDisplayed()
+        preview("queue-search-collapsed-title-pinned")
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
+        compose.onNodeWithText("筛选播放列表").assertIsDisplayed()
+        compose.onNodeWithTag("pinned-list-header").assertDoesNotExist()
+    }
+
     @Test fun lastSongCanScrollIntoViewAndStillReceiveItsPlaybackClick() {
         var selected = ""
         compose.setContent {
@@ -191,6 +237,64 @@ class RoundComposeRegressionTest {
         assertTrue("Scaled row keeps an oversized blank gap: $first / $second", second.top - first.bottom <= 4.dp)
     }
 
+    @Test fun miniPlayerKeepsOneArtworkMovingContinuouslyToTheCenter() {
+        val controller = MiniPlayerController()
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                PreviewView()
+                Box(Modifier.fillMaxSize()) {
+                    WatchMiniPlayer("连续移动", "演示", null, false, .5f, controller,
+                        Modifier.align(Alignment.BottomCenter), onPlayPause = {}, onOpenPlayer = {})
+                }
+            }
+        }
+        fun center() = compose.onNodeWithTag("mini-player-artwork", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot().let { (it.left.value + it.right.value) / 2 }
+        val start = center()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { controller.onListScrollStarted(); androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        repeat(5) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() }
+        val middle = center()
+        assertTrue("Artwork center should move between endpoints: start=$start middle=$middle", middle > start + 2f && middle < 116.5f)
+        compose.onAllNodesWithTag("mini-player-artwork", useUnmergedTree = true).assertCountEquals(1)
+        compose.onAllNodesWithTag("mini-player-progress", useUnmergedTree = true).assertCountEquals(1)
+        preview("mini-player-morph-intermediate")
+        compose.mainClock.advanceTimeBy(1500)
+        assertEquals(116.5f, center(), .6f)
+        compose.onNodeWithTag("mini-player-collapsed").assertWidthIsEqualTo(44.dp)
+        compose.onNodeWithContentDescription("播放").assertDoesNotExist()
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun interruptingMiniPlayerCollapseReversesWithoutReplacingTheArtwork() {
+        val controller = MiniPlayerController()
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                PreviewView()
+                WatchMiniPlayer("连续反向", "演示", null, false, .4f, controller,
+                    onPlayPause = {}, onOpenPlayer = {})
+            }
+        }
+        fun center() = compose.onNodeWithTag("mini-player-artwork", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot().let { (it.left.value + it.right.value) / 2 }
+        val start = center()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { controller.onListScrollStarted(); androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        repeat(5) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() }
+        val before = center()
+        compose.runOnIdle { controller.expand(); androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        compose.mainClock.advanceTimeBy(16)
+        assertTrue(kotlin.math.abs(center() - before) < 15f)
+        compose.mainClock.advanceTimeBy(1500)
+        assertEquals(start, center(), .6f)
+        compose.onAllNodesWithTag("mini-player-artwork", useUnmergedTree = true).assertCountEquals(1)
+        compose.mainClock.autoAdvance = true
+    }
+
     @Test fun clockScrimSeparatesScrollingContentFromTheTime() {
         compose.setContent {
             QMusicWatchTheme("compact", true) {
@@ -252,9 +356,13 @@ class RoundComposeRegressionTest {
         }
         compose.runOnIdle { repeat(500) { crown.offer(1000f, 1000L + it) } }
         compose.waitForIdle()
-        compose.runOnIdle { assertTrue("Crown burst should not jump many rows", state.firstVisibleItemIndex <= 1) }
+        var afterCrown = 0
+        compose.runOnIdle {
+            afterCrown = state.firstVisibleItemIndex
+            assertTrue("Fast crown motion must remain bounded", afterCrown <= 8)
+        }
         compose.onNode(hasScrollToIndexAction()).performTouchInput { swipeUp(durationMillis = 400) }
-        compose.runOnIdle { assertTrue("Touch must still scroll after crown input", state.firstVisibleItemIndex > 1) }
+        compose.runOnIdle { assertTrue("Touch must still scroll after crown input", state.firstVisibleItemIndex > afterCrown) }
         preview("round-crown-bounded-scroll")
     }
 
@@ -407,6 +515,27 @@ class RoundComposeRegressionTest {
             assertFalse(requireNotNull(result).isLineEllipsized(2))
         }
         preview("lyric-three-lines-reduced-emphasis")
+    }
+
+    @Test fun lyricsBeyondTheViewportKeepAllWrappedLinesAndTheFinalCharacter() {
+        val text = "Long lyrics wrap naturally and remain complete. 这是一段很长但不能省略的歌词。".repeat(8) + "终"
+        var result: TextLayoutResult? = null
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                PreviewView()
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
+                    item { WatchLyricText(text, 17f, true, Color.White,
+                        Modifier.fillMaxWidth(), onTextLayout = { result = it }) }
+                }
+            }
+        }
+        compose.runOnIdle {
+            val layout = requireNotNull(result)
+            assertTrue(layout.lineCount > 6)
+            assertEquals(text.length, layout.getLineEnd(layout.lineCount - 1))
+            assertFalse(layout.hasVisualOverflow)
+            assertTrue((0 until layout.lineCount).none(layout::isLineEllipsized))
+        }
     }
 
     @Test fun wordHighlightAdvancesBetweenPlaybackSamplesWithoutRemeasuringText() {

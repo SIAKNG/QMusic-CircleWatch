@@ -5,5 +5,8 @@
         <item name="android:statusBarColor">#050505</item>
         <item name="android:navigationBarColor">#050505</item>
         <item name="android:windowActionModeOverlay">true</item>
+        <!-- Compose owns the page stack; the inherited activity-dismiss gesture
+             would otherwise close the entire app from a secondary page. -->
+        <item name="android:windowSwipeToDismiss">false</item>
     </style>
 </resources>

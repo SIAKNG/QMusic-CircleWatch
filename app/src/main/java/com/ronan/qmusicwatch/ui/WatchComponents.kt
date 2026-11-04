@@ -88,10 +88,10 @@ fun WatchIconButton(
             .combinedClickable(
                 role = Role.Button,
                 onClick = onClick,
-                onLongClick = {
+                onLongClick = onLongClick?.let { callback -> {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick?.invoke()
-                },
+                    callback()
+                } },
             ),
         contentAlignment = Alignment.Center,
     ) {

@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
@@ -53,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ronan.qmusicwatch.R
 import com.ronan.qmusicwatch.MainActivity
@@ -154,6 +157,9 @@ fun WatchLazyColumn(
     flingBehavior: FlingBehavior = ScrollableDefaults.flingBehavior(),
     userScrollEnabled: Boolean = true,
     roundInsets: Boolean = true,
+    pinnedTitle: String? = null,
+    onPinnedBack: (() -> Unit)? = null,
+    pinnedAction: (@Composable () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val dimensions = LocalWatchDimensions.current
@@ -192,20 +198,59 @@ fun WatchLazyColumn(
         bottom = maxOf(contentPadding.calculateBottomPadding(), config.screenHeightDp.dp * .34f),
     ) else contentPadding
     LaunchedEffect(round) { if (round) focus.requestFocus() }
+    val showPinned by remember(state, pinnedTitle, density) {
+        derivedStateOf {
+            pinnedTitle != null && (state.firstVisibleItemIndex > 0 ||
+                state.firstVisibleItemScrollOffset > with(density) { 10.dp.toPx() })
+        }
+    }
+    Box(modifier) {
     LazyColumn(
-        modifier = if (round) modifier.onGloballyPositioned {
+        modifier = if (round) Modifier.fillMaxSize().onGloballyPositioned {
             crownViewport.bounds = it.boundsInWindow()
             val screenHeight = view.height.toFloat().takeIf { h -> h > 0f } ?: diameter
             containerTop = it.positionInWindow().y - (screenHeight - diameter) / 2f
         }.focusRequester(focus).onRotaryScrollEvent {
             crown.offer(it.verticalScrollPixels, it.uptimeMillis)
-        }.focusable() else modifier,
+        }.focusable() else Modifier.fillMaxSize(),
         state = state, contentPadding = padding, reverseLayout = reverseLayout,
         verticalArrangement = if (round) Arrangement.spacedBy(dimensions.itemSpacing) else verticalArrangement,
         horizontalAlignment = horizontalAlignment,
         flingBehavior = flingBehavior, userScrollEnabled = userScrollEnabled,
     ) {
         if (round) RoundListScope(this, state) { containerTop }.content() else content()
+    }
+    if (showPinned) {
+        Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()
+            .background(Brush.verticalGradient(colorStops = arrayOf(
+                0f to androidx.compose.ui.graphics.Color.Black,
+                .9f to androidx.compose.ui.graphics.Color.Black,
+                1f to androidx.compose.ui.graphics.Color.Transparent)))
+            .padding(top = if (round) 20.dp else 0.dp)
+            .padding(horizontal = if (round) config.screenWidthDp.dp * .11f else 0.dp).padding(bottom = 5.dp)
+            .testTag("pinned-list-header")) {
+            WatchPageHeader(pinnedTitle.orEmpty(), onPinnedBack ?: {}, compact = true, action = pinnedAction)
+        }
+    }
+    }
+}
+
+/** Compact row stays below the clock; the original header still shrinks with the list. */
+@Composable
+fun WatchPageHeader(
+    title: String,
+    onBack: () -> Unit,
+    compact: Boolean = false,
+    action: (@Composable () -> Unit)? = null,
+) {
+    Row(Modifier.fillMaxWidth().height(if (compact) 36.dp else 42.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        WatchIconButton(Icons.AutoMirrored.Filled.ArrowBack, "返回",
+            buttonSize = if (compact) 30.dp else 32.dp, onClick = onBack)
+        Text(title, Modifier.weight(1f).padding(horizontal = 3.dp),
+            fontSize = if (compact) 13.sp else 16.sp, fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (action != null) action() else Spacer(Modifier.width(if (compact) 30.dp else 32.dp))
     }
 }
 

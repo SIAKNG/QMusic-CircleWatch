@@ -32,6 +32,20 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [35], application = android.app.Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class PlaybackServiceRobolectricTest {
+    @Test fun mediaServiceIsDiscoverableWithoutAnUndeclaredBindingPermission() {
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        val component = android.content.ComponentName(context, PlaybackService::class.java)
+        val service = context.packageManager.getServiceInfo(component, 0)
+        assertTrue(service.exported)
+        assertNull(service.permission)
+        val services = context.packageManager.queryIntentServices(
+            android.content.Intent("android.media.browse.MediaBrowserService").setPackage(context.packageName), 0)
+        assertTrue(services.any { it.serviceInfo.name == PlaybackService::class.java.name })
+        val music = context.packageManager.queryIntentActivities(
+            android.content.Intent(android.content.Intent.ACTION_MAIN)
+                .addCategory(android.content.Intent.CATEGORY_APP_MUSIC).setPackage(context.packageName), 0)
+        assertTrue(music.any { it.activityInfo.name == MainActivity::class.java.name })
+    }
     @Test fun backgroundPlaybackKeepsCpuAndNetworkAwake() {
         assertEquals(C.WAKE_MODE_NETWORK, BACKGROUND_PLAYBACK_WAKE_MODE)
         assertTrue(BACKGROUND_SNAPSHOT_INTERVAL_MS in 5_000L..30_000L)
@@ -196,10 +210,26 @@ class PlaybackServiceRobolectricTest {
         try {
             val field = PlaybackService::class.java.getDeclaredField("session").apply { isAccessible = true }
             val session = field.get(service) as MediaSession
-            val actions = session.mediaButtonPreferences.map { it.sessionCommand?.customAction }
+            assertTrue(session is androidx.media3.session.MediaLibraryService.MediaLibrarySession)
+            assertTrue(session.player.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT))
+            assertTrue(session.player.isCommandAvailable(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS))
+            val actions = session.mediaButtonPreferences.map { it.playerCommand }
             assertEquals(2, actions.size)
-            assertTrue(actions.any { it?.endsWith(".PREVIOUS") == true })
-            assertTrue(actions.any { it?.endsWith(".NEXT") == true })
+            assertTrue(actions.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS))
+            assertTrue(actions.contains(androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT))
+            val future = androidx.media3.session.MediaBrowser.Builder(service, session.token).buildAsync()
+            repeat(100) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                if (!future.isDone) Thread.sleep(5)
+            }
+            val browser = future.get(2, java.util.concurrent.TimeUnit.SECONDS)
+            try {
+                assertTrue(browser.availableSessionCommands.contains(
+                    androidx.media3.session.SessionCommand.COMMAND_CODE_LIBRARY_GET_LIBRARY_ROOT))
+                val root = browser.getLibraryRoot(null)
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                assertEquals("qmusic.root", root.get(2, java.util.concurrent.TimeUnit.SECONDS).value?.mediaId)
+            } finally { browser.release() }
         } finally {
             controller.destroy()
         }
