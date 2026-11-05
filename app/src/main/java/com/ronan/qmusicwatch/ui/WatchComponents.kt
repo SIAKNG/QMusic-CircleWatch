@@ -5,6 +5,8 @@ import androidx.compose.foundation.BasicTooltipState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -224,12 +226,15 @@ fun WatchListRow(
     onClick: (() -> Unit)? = null,
 ) {
     val dimensions = LocalWatchDimensions.current
+    val interaction = if (onClick != null) remember { MutableInteractionSource() } else null
     val rowModifier = modifier
         .fillMaxWidth()
         .heightIn(min = dimensions.trackRowHeight)
+        .then(if (interaction != null) Modifier.watchPressFeedback(interaction) else Modifier)
         .clip(CircleShape)
         .background(WatchSurface, CircleShape)
-        .then(if (onClick != null) Modifier.combinedClickable(onClick = onClick) else Modifier)
+        .then(if (onClick != null && interaction != null) Modifier.clickable(
+            interactionSource = interaction, indication = LocalIndication.current, onClick = onClick) else Modifier)
         .padding(horizontal = if (dimensions.isRound) 12.dp else 8.dp, vertical = if (dimensions.isRound) 8.dp else 0.dp)
     Row(rowModifier, verticalAlignment = Alignment.CenterVertically) {
         leading?.let {
@@ -288,6 +293,7 @@ fun WatchDialog(
     icon: (@Composable () -> Unit)? = null,
     title: (@Composable () -> Unit)? = null,
     text: (@Composable () -> Unit)? = null,
+    floatingClose: Boolean = false,
 ) {
     val dimensions = LocalWatchDimensions.current
     Dialog(
@@ -297,7 +303,7 @@ fun WatchDialog(
         if (dimensions.isRound) {
             BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).imePadding(), contentAlignment = Alignment.Center) {
                 Column(
-                    modifier.fillMaxWidth().fillMaxHeight(.70f).padding(horizontal = maxWidth * .12f),
+                    modifier.fillMaxWidth().fillMaxHeight(if (floatingClose) .82f else .70f).padding(horizontal = maxWidth * .12f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
@@ -309,16 +315,22 @@ fun WatchDialog(
                         }
                     }
                     text?.let {
-                        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
+                            .then(if (floatingClose) Modifier.padding(bottom = 52.dp) else Modifier)) {
                             ProvideTextStyle(TextStyle(fontSize = dimensions.secondarySp.sp, color = WatchTextSecondary)) { it() }
                         }
                     } ?: Spacer(Modifier.weight(1f))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+                    if (!floatingClose) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically) {
                         dismissButton?.invoke()
                         confirmButton()
                     }
                 }
+                if (floatingClose) WatchIconButton(
+                    Icons.Default.Close, "关闭",
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = maxHeight * .10f),
+                    containerColor = Color.Transparent, buttonSize = 44.dp, onClick = onDismissRequest,
+                )
                 OppoRoundClock(Modifier.align(Alignment.TopCenter))
             }
             return@Dialog

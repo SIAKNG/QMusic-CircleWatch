@@ -611,30 +611,30 @@ class MainActivity : ComponentActivity() {
                     onBack = navigateBack,
                 ),
             enterTransition = {
-                fadeIn(tween(110))
+                WatchNavigationMotion.enter()
             },
             exitTransition = {
-                fadeOut(tween(90))
+                WatchNavigationMotion.exit(this)
             },
             popEnterTransition = {
-                fadeIn(tween(110))
+                WatchNavigationMotion.popEnter()
             },
             popExitTransition = {
-                fadeOut(tween(90))
+                WatchNavigationMotion.popExit()
             },
         ) {
-            composable("home") { val pageState by vm.state.collectAsStateWithLifecycle(); HomeScreen(nav, pageState, vm, dailyCount) }
-            composable("login") { val pageState by vm.state.collectAsStateWithLifecycle(); LoginScreen(pageState, vm) { nav.popBackStack() } }
-            composable("search") { val pageState by vm.state.collectAsStateWithLifecycle(); SearchScreen(nav, pageState, vm, searchHistory) }
-            composable("library/{section}") { entry ->
+            watchDestination("home") { val pageState by vm.state.collectAsStateWithLifecycle(); HomeScreen(nav, pageState, vm, dailyCount) }
+            watchDestination("login") { val pageState by vm.state.collectAsStateWithLifecycle(); LoginScreen(pageState, vm) { nav.popBackStack() } }
+            watchDestination("search") { val pageState by vm.state.collectAsStateWithLifecycle(); SearchScreen(nav, pageState, vm, searchHistory) }
+            watchDestination("library/{section}") { entry ->
                 val pageState by vm.state.collectAsStateWithLifecycle()
                 val section = LibrarySection.fromRoute(entry.arguments?.getString("section"))
                 LaunchedEffect(section) { vm.loadLibrary() }
                 LibraryScreen(nav, pageState, vm, section)
             }
-            composable("recent") { val pageState by vm.state.collectAsStateWithLifecycle(); LaunchedEffect(Unit) { vm.loadRecent() }; TrackListScreen("最近播放", pageState.recent, writablePlaylists(pageState.library?.playlists.orEmpty()), vm) { nav.popBackStack() } }
-            composable("downloads") { DownloadScreen(downloads, vm) { nav.popBackStack() } }
-            composable("player") {
+            watchDestination("recent") { val pageState by vm.state.collectAsStateWithLifecycle(); LaunchedEffect(Unit) { vm.loadRecent() }; TrackListScreen("最近播放", pageState.recent, writablePlaylists(pageState.library?.playlists.orEmpty()), vm) { nav.popBackStack() } }
+            watchDestination("downloads") { DownloadScreen(downloads, vm) { nav.popBackStack() } }
+            watchDestination("player") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
                 PlayerScreen(
                     track = pageState.currentTrack,
@@ -662,7 +662,7 @@ class MainActivity : ComponentActivity() {
                     onBack = { nav.popBackStack() },
                 )
             }
-            composable("queue") {
+            watchDestination("queue") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
                 // Collected here, not at the root: queue swaps fire on every track
                 // change and previously recomposed the whole NavHost + dialogs.
@@ -672,23 +672,23 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { if (vm.signedIn) vm.loadLibrary() }
                 QueueScreen(queue, queueIndex, queueReversed, pageState, vm) { nav.popBackStack() }
             }
-            composable("detail") { val pageState by vm.state.collectAsStateWithLifecycle(); DetailScreen(pageState.detail, pageState.detailDirectoryId, pageState.detailLoading, pageState.detailError, writablePlaylists(pageState.library?.playlists.orEmpty()), vm) { nav.popBackStack() } }
-            composable("settings") { SettingsCenter(nav) { nav.popBackStack() } }
-            composable("settings/display") { DisplaySettingsScreen(vm, uiSize, lyricSize, lyricOriginal, lyricTranslation, lyricOffset, lyricAnimation, lyricAlignment, pureBlack, lowPowerPlayer) { nav.popBackStack() } }
-            composable("settings/playback") {
+            watchDestination("detail") { val pageState by vm.state.collectAsStateWithLifecycle(); DetailScreen(pageState.detail, pageState.detailDirectoryId, pageState.detailLoading, pageState.detailError, writablePlaylists(pageState.library?.playlists.orEmpty()), vm) { nav.popBackStack() } }
+            watchDestination("settings") { SettingsCenter(nav) { nav.popBackStack() } }
+            watchDestination("settings/display") { DisplaySettingsScreen(vm, uiSize, lyricSize, lyricOriginal, lyricTranslation, lyricOffset, lyricAnimation, lyricAlignment, pureBlack, lowPowerPlayer) { nav.popBackStack() } }
+            watchDestination("settings/playback") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
                 val sleepRemaining by vm.sleepRemaining.collectAsStateWithLifecycle()
                 PlaybackSettingsScreen(vm, quality, pageState.profile, pageState.profileLoaded, headphoneWarning, autoOpenPlayer, playMode, sleepRemaining, rotaryVolumeEnabled, wifiOnlyDownload, lastSleepMinutes) { nav.popBackStack() }
             }
-            composable("settings/network") {
+            watchDestination("settings/network") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
                 NetworkSettingsScreen(vm, dailyCount, pageState, onAnnouncements = { nav.navigate("settings/announcements") }, onRelogin = {
                     vm.logout()
                     nav.navigate("login") { popUpTo("home") }
                 }) { nav.popBackStack() }
             }
-            composable("settings/announcements") { AnnouncementsScreen(chrome.announcements, seenAnnouncements, vm) { nav.popBackStack() } }
-            composable("settings/about") {
+            watchDestination("settings/announcements") { AnnouncementsScreen(chrome.announcements, seenAnnouncements, vm) { nav.popBackStack() } }
+            watchDestination("settings/about") {
                 AboutScreen(vm, chrome.updateState, startUpdate, requestUpdateInstall) { nav.popBackStack() }
             }
         }
@@ -921,9 +921,11 @@ class MainActivity : ComponentActivity() {
     tint: Color,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Surface(
         onClick = onClick,
-        modifier = Modifier.weight(1f).fillMaxHeight(),
+        modifier = Modifier.weight(1f).fillMaxHeight().watchPressFeedback(interaction),
+        interactionSource = interaction,
         shape = RoundedCornerShape(50),
         color = WatchSurfaceRaised,
     ) {
@@ -1081,7 +1083,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
         if (type == "track") items(state.searchTracks, key = { "track:${it.id}" }) {
             TrackRow(it, vm, queue = state.searchTracks, playlists = writablePlaylists(state.library?.playlists.orEmpty()))
         } else items(state.searchCollections, key = { "collection:${it.directoryId}:${it.id}" }) {
-            CollectionRow(it) { vm.loadDetail(type, it); nav.navigate("detail") }
+            CollectionRow(it) { vm.loadDetail(type, it); nav.navigate("detail") { launchSingleTop = true } }
         }
         if (state.searchCursor != null) item {
             TextButton({ vm.search(state.searchQuery, type, loadMore = true) }, Modifier.fillMaxWidth(), enabled = !state.searchLoading) {
@@ -1136,14 +1138,14 @@ private fun decodeServerQrImage(value: String) = runCatching {
                             ) { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(18.dp), tint = WatchAccent) }
                         },
                         trailing = { WatchIconButton(Icons.Default.MoreVert, "歌单操作") { actionPlaylist = item } },
-                        onClick = { vm.loadDetail("playlist", item, editable = true); nav.navigate("detail") },
+                        onClick = { vm.loadDetail("playlist", item, editable = true); nav.navigate("detail") { launchSingleTop = true } },
                     )
                 }
                 if (state.library != null && created.isEmpty()) item { Text("还没有创建歌单", color = Color.Gray) }
             }
             LibrarySection.Collected -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }) }
-                items(collected, key = { "${it.directoryId}:${it.id}" }) { item -> CollectionRow(item) { vm.loadDetail("playlist", item); nav.navigate("detail") } }
+                items(collected, key = { "${it.directoryId}:${it.id}" }) { item -> CollectionRow(item) { vm.loadDetail("playlist", item); nav.navigate("detail") { launchSingleTop = true } } }
                 if (state.library != null && collected.isEmpty()) item { Text("还没有收藏歌单", color = Color.Gray) }
             }
         }
@@ -1159,6 +1161,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                 }
             },
             confirmButton = { WatchConfirmButton({ actionPlaylist = null }) { Text("关闭") } },
+            floatingClose = true,
         )
     }
     if (creating || editing != null) WatchDialog(onDismissRequest = { creating = false; editing = null }, title = { Text(if (creating) "新建歌单" else "重命名歌单") }, text = { WatchSearchField(title, { title = it.take(50) }, "歌单名称") }, confirmButton = { WatchConfirmButton({ if (creating) vm.createPlaylist(title.trim()) else vm.renamePlaylist(editing!!.directoryId, title.trim()); creating = false; editing = null }, enabled = title.isNotBlank()) { Text("保存") } }, dismissButton = { WatchCancelButton({ creating = false; editing = null }) { Text("取消") } })
@@ -1206,6 +1209,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                 }
             },
             confirmButton = { WatchConfirmButton({ actionDownload = null }) { Text("关闭") } },
+            floatingClose = true,
         )
     }
     if (confirmDeleteLocked) WatchDialog(onDismissRequest = { confirmDeleteLocked = false }, title = { Text("删除全部锁定缓存？") }, text = { Text("将永久删除其他账号的 ${locked.size} 首离线歌曲；歌曲名称和账号信息不会显示。") }, confirmButton = { WatchConfirmButton({ vm.deleteLockedDownloads(); confirmDeleteLocked = false }) { Text("确认删除", color = MaterialTheme.colorScheme.error) } }, dismissButton = { WatchCancelButton({ confirmDeleteLocked = false }) { Text("取消") } })
@@ -2546,6 +2550,7 @@ private fun formatFileSize(bytes: Long): String = when {
             }
         },
         confirmButton = { WatchConfirmButton({ menu = false }) { Text("关闭") } },
+            floatingClose = true,
     )
     if (choosePlaylist) WatchDialog(
         onDismissRequest = { choosePlaylist = false },
@@ -2749,6 +2754,7 @@ private fun formatFileSize(bytes: Long): String = when {
             }
         },
         confirmButton = { WatchConfirmButton({ queueMenu = false }) { Text("关闭") } },
+            floatingClose = true,
     )
     if (saveDialog) WatchDialog(onDismissRequest = { saveDialog = false }, title = { Text("保存为我的歌单") }, text = { WatchSearchField(playlistTitle, { playlistTitle = it.take(50) }, "歌单名称") }, confirmButton = { WatchConfirmButton({ if (playlistTitle.isNotBlank()) vm.saveQueueAsPlaylist(playlistTitle); saveDialog = false }) { Text("保存") } }, dismissButton = { WatchCancelButton({ saveDialog = false }) { Text("取消") } })
     if (importDialog) WatchDialog(

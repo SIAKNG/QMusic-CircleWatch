@@ -8,6 +8,7 @@
 | `AppViewModel.kt` | 会话与页面状态、搜索、曲库、播放、歌单、缓存等业务协调 |
 | `ui/RoundWatchLayout.kt` | 圆屏几何、安全区、列表缩放与时间显示 |
 | `ui/WatchRotaryInput.kt` | 可见列表注册、滚轮分发、OPPO 线性马达与系统回退 |
+| `ui/WatchNavigationMotion.kt` | 单页进入/返回过渡与绘制层按压反馈 |
 | `playback/CrownScrollFilter.kt` | 表冠速度增益、短距离惯性、输入合并与反向噪声过滤 |
 | `ui/WatchMiniPlayer.kt` | 胶囊/专辑圆标状态和播放进度环 |
 | `ui/WatchLyricText.kt`、`lyrics/` | 逐字时间解析、换行文本绘制和柔和的进度边界 |

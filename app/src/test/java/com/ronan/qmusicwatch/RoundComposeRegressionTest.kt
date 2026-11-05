@@ -237,6 +237,27 @@ class RoundComposeRegressionTest {
         assertTrue("Scaled row keeps an oversized blank gap: $first / $second", second.top - first.bottom <= 4.dp)
     }
 
+    @Test fun pressingAndDraggingAPlaylistCardScrollsWithoutOpeningIt() {
+        var opens = 0
+        lateinit var state: androidx.compose.foundation.lazy.LazyListState
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                PreviewView()
+                state = androidx.compose.foundation.lazy.rememberLazyListState()
+                WatchLazyColumn(Modifier.fillMaxSize(), state = state) {
+                    items(50) { n -> WatchListRow("歌单 $n", "测试", onClick = { opens++ }) }
+                }
+            }
+        }
+        compose.onNode(hasScrollToIndexAction()).performTouchInput {
+            swipeUp(startY = height * .65f, endY = height * .25f, durationMillis = 280)
+        }
+        compose.runOnIdle {
+            assertEquals(0, opens)
+            assertTrue(state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 0)
+        }
+    }
+
     @Test fun miniPlayerKeepsOneArtworkMovingContinuouslyToTheCenter() {
         val controller = MiniPlayerController()
         compose.setContent {

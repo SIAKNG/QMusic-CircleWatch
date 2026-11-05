@@ -38,10 +38,13 @@ class WatchBackNavigationTest {
         val density = LocalDensity.current
         Box(Modifier.fillMaxSize().testTag("navigation-host").watchSwipeBack(true,
             with(density) { 54.dp.toPx() }, with(density) { 48.dp.toPx() }, back)) {
-            NavHost(nav, "home") {
-                composable("home") { Text("主界面") }
-                composable("created") { Text("创建的歌单") }
-                composable("detail") { Text("歌单详情") }
+            NavHost(nav, "home", enterTransition = { WatchNavigationMotion.enter() },
+                exitTransition = { WatchNavigationMotion.exit(this) },
+                popEnterTransition = { WatchNavigationMotion.popEnter() },
+                popExitTransition = { WatchNavigationMotion.popExit() }) {
+                watchDestination("home") { Text("主界面") }
+                watchDestination("created") { Text("创建的歌单") }
+                watchDestination("detail") { Text("歌单详情") }
             }
         }
     }
@@ -76,5 +79,19 @@ class WatchBackNavigationTest {
             val attrs = context.obtainStyledAttributes(intArrayOf(android.R.attr.windowSwipeToDismiss))
             try { assertFalse(attrs.getBoolean(0, true)) } finally { attrs.recycle() }
         }
+    }
+    @Test fun backCanInterruptEntryWithoutWaitingForTheAnimation() {
+        setup()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { nav.navigate("created"); androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnIdle { nav.navigate("detail") { launchSingleTop = true }; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnIdle { activity.onBackPressedDispatcher.onBackPressed() }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals("created", nav.currentDestination?.route); assertEquals(0, exits) }
+        edgeSwipe()
+        compose.runOnIdle { assertEquals("home", nav.currentDestination?.route) }
     }
 }
