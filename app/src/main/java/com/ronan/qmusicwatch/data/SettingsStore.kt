@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ronan.qmusicwatch.model.QUALITY_STANDARD
 import com.ronan.qmusicwatch.model.normalizeQualityId
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore("settings")
@@ -92,7 +93,7 @@ class SettingsStore(private val context: Context) {
             uiSize = normalizeUiSize(prefs[uiSizeKey]),
             artworkAccent = prefs[artworkAccentKey].orEmpty(),
         )
-    }
+    }.distinctUntilChanged()
     val quality = context.settingsDataStore.data.map { normalizeQualityId(it[qualityKey]) }
     val headphoneWarning = context.settingsDataStore.data.map { it[headphoneWarningKey] ?: true }
     val autoOpenPlayer = context.settingsDataStore.data.map { it[autoOpenPlayerKey] ?: true }

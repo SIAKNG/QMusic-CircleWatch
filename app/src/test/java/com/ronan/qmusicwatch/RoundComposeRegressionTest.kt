@@ -141,6 +141,25 @@ class RoundComposeRegressionTest {
         compose.runOnIdle { assertEquals("confirm", action) }
     }
 
+    @Test fun floatingCancelKeepsItsLabelInsideOneCircleAndDismissesTheMenu() {
+        var cancelled = false
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                WatchDialog(onDismissRequest = { cancelled = true }, floatingClose = true,
+                    title = { Text("歌曲更多") }, text = { PreviewView(); Text("操作选项\n".repeat(30)) },
+                    confirmButton = {})
+            }
+        }
+        compose.onNodeWithTag("floating-cancel").assertWidthIsEqualTo(48.dp).assertHeightIsEqualTo(48.dp)
+        val circle = compose.onNodeWithTag("floating-cancel").getUnclippedBoundsInRoot()
+        val label = compose.onNodeWithText("取消", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        assertTrue(label.left >= circle.left && label.right <= circle.right)
+        assertTrue(label.top >= circle.top && label.bottom <= circle.bottom)
+        preview("floating-cancel-circle-label")
+        compose.onNodeWithText("取消").performClick()
+        compose.runOnIdle { assertTrue(cancelled) }
+    }
+
     @Test fun searchActionAndTextEditingStillWorkInARoundDialog() {
         var submitted = ""
         compose.setContent {
@@ -235,6 +254,32 @@ class RoundComposeRegressionTest {
         val second = compose.onNode(hasTestTag("round-list-item") and hasAnyDescendant(hasText("间距测试 2")), useUnmergedTree = true).getUnclippedBoundsInRoot()
         assertTrue("Rows overlap: $first / $second", second.top >= first.bottom)
         assertTrue("Scaled row keeps an oversized blank gap: $first / $second", second.top - first.bottom <= 4.dp)
+    }
+
+    @Test fun miniPlayerProgressKeepsUpdatingThroughTheDeferredDrawProvider() {
+        val progress = mutableFloatStateOf(.15f)
+        val controller = MiniPlayerController()
+        compose.setContent {
+            QMusicWatchTheme("compact", true) {
+                WatchMiniPlayer("测试歌曲", "歌词", null, true, 0f, controller,
+                    progressProvider = { progress.floatValue }, onPlayPause = {}, onOpenPlayer = {})
+            }
+        }
+        fun assertProgress(expected: Float) {
+            compose.onNodeWithTag("mini-player-progress", useUnmergedTree = true).assert(
+                SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo,
+                    ProgressBarRangeInfo(expected, 0f..1f)))
+        }
+        assertProgress(.15f)
+        compose.runOnIdle { progress.floatValue = .85f; controller.onListScrollStarted() }
+        compose.waitForIdle()
+        assertProgress(.85f)
+        compose.onAllNodesWithTag("mini-player-artwork", useUnmergedTree = true).assertCountEquals(1)
+        compose.onNodeWithContentDescription("展开正在播放").performClick()
+        compose.runOnIdle { progress.floatValue = .95f }
+        compose.waitForIdle()
+        assertProgress(.95f)
+        compose.onNodeWithContentDescription("暂停").assertIsDisplayed()
     }
 
     @Test fun pressingAndDraggingAPlaylistCardScrollsWithoutOpeningIt() {

@@ -1080,9 +1080,9 @@ private fun decodeServerQrImage(value: String) = runCatching {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             }
         }
-        if (type == "track") items(state.searchTracks, key = { "track:${it.id}" }) {
+        if (type == "track") items(state.searchTracks, key = { "track:${it.id}" }, contentType = { "track" }) {
             TrackRow(it, vm, queue = state.searchTracks, playlists = writablePlaylists(state.library?.playlists.orEmpty()))
-        } else items(state.searchCollections, key = { "collection:${it.directoryId}:${it.id}" }) {
+        } else items(state.searchCollections, key = { "collection:${it.directoryId}:${it.id}" }, contentType = { "collection" }) {
             CollectionRow(it) { vm.loadDetail(type, it); nav.navigate("detail") { launchSingleTop = true } }
         }
         if (state.searchCursor != null) item {
@@ -1100,8 +1100,8 @@ private fun decodeServerQrImage(value: String) = runCatching {
     var deleting by remember { mutableStateOf<MusicCollection?>(null) }
     var actionPlaylist by remember { mutableStateOf<MusicCollection?>(null) }
     var title by remember { mutableStateOf("") }
-    val created = state.library?.playlists.orEmpty().filter { it.owned != false }
-    val collected = state.library?.playlists.orEmpty().filter { it.owned == false }
+    val created = remember(state.library?.playlists) { state.library?.playlists.orEmpty().filter { it.owned != false } }
+    val collected = remember(state.library?.playlists) { state.library?.playlists.orEmpty().filter { it.owned == false } }
     val pageTitle = when (section) {
         LibrarySection.Liked -> "我喜欢"
         LibrarySection.Created -> "我创建的歌单"
@@ -1116,12 +1116,12 @@ private fun decodeServerQrImage(value: String) = runCatching {
         when (section) {
             LibrarySection.Liked -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }) }
-                items(state.library?.liked.orEmpty(), key = { it.id }) { TrackRow(it, vm, liked = true, queue = state.library?.liked.orEmpty(), playlists = created) }
+                items(state.library?.liked.orEmpty(), key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, liked = true, queue = state.library?.liked.orEmpty(), playlists = created) }
                 if (state.library != null && state.library.liked.isEmpty()) item { Text("还没有喜欢的歌曲", color = Color.Gray) }
             }
             LibrarySection.Created -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }, action = "新建") { title = ""; creating = true } }
-                items(created, key = { "${it.directoryId}:${it.id}" }) { item ->
+                items(created, key = { "${it.directoryId}:${it.id}" }, contentType = { "collection" }) { item ->
                     val artwork = rememberArtworkImageRequest(item.artworkUrl, 96)
                     WatchListRow(
                         title = item.title,
@@ -1145,7 +1145,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             }
             LibrarySection.Collected -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }) }
-                items(collected, key = { "${it.directoryId}:${it.id}" }) { item -> CollectionRow(item) { vm.loadDetail("playlist", item); nav.navigate("detail") { launchSingleTop = true } } }
+                items(collected, key = { "${it.directoryId}:${it.id}" }, contentType = { "collection" }) { item -> CollectionRow(item) { vm.loadDetail("playlist", item); nav.navigate("detail") { launchSingleTop = true } } }
                 if (state.library != null && collected.isEmpty()) item { Text("还没有收藏歌单", color = Color.Gray) }
             }
         }
@@ -1169,7 +1169,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
 }
 
 @Composable internal fun TrackListScreen(title: String, tracks: List<Track>, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), pinnedTitle = title, onPinnedBack = onBack) {
-    item { SettingsHeader(title, onBack) }; items(tracks, key = { it.id }) { TrackRow(it, vm, queue = tracks, playlists = playlists) }
+    item { SettingsHeader(title, onBack) }; items(tracks, key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, queue = tracks, playlists = playlists) }
 }
 
 @Composable internal fun DownloadScreen(downloads: List<DownloadEntity>, vm: AppViewModel, onBack: () -> Unit) {
@@ -1250,7 +1250,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     var duration by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(false) }
     val hasTimeline = remember(lyrics) { lyrics.any { it.timeMs >= 0 } }
-    val active = activeLyricIndex(lyrics, position + lyricOffset)
+    val active by remember(lyrics, lyricOffset) { derivedStateOf { activeLyricIndex(lyrics, position + lyricOffset) } }
     val hasTranslation = remember(lyrics) { lyrics.any { !it.translation.isNullOrBlank() } }
     val (renderOriginal, renderTranslation) = lyricLayers(showOriginal, showTranslation, hasTranslation)
     val lyricSp = when (lyricSize) { "small" -> 15f; "large" -> 19f; else -> 17f }
@@ -2860,14 +2860,17 @@ private fun formatFileSize(bytes: Long): String = when {
             delay(350)
         }
     }
-    val previewIndex = activeLyricIndex(lyrics, position).takeIf { it >= 0 }
-        ?: lyrics.indexOfFirst { it.timeMs >= 0 }.takeIf { it >= 0 }
-        ?: lyrics.indexOfFirst { it.text.isNotBlank() }
+    val previewIndex by remember(lyrics) { derivedStateOf {
+        activeLyricIndex(lyrics, position).takeIf { it >= 0 }
+            ?: lyrics.indexOfFirst { it.timeMs >= 0 }.takeIf { it >= 0 }
+            ?: lyrics.indexOfFirst { it.text.isNotBlank() }
+    } }
+    val progressProvider = remember(track.id) { { playbackProgress(position, duration) } }
     val preview = lyrics.getOrNull(previewIndex)?.text?.takeIf { it.isNotBlank() }
         ?: if (playing) "正在播放" else "已暂停"
     WatchMiniPlayer(
         title = track.title, subtitle = preview, artwork = artworkRequest,
-        playing = playing, progress = playbackProgress(position, duration),
+        playing = playing, progress = 0f, progressProvider = progressProvider,
         controller = controller, modifier = modifier, accent = accent,
         onPlayPause = { if (playing) vm.pausePlayback() else vm.resumePlayback() },
         onOpenPlayer = open,

@@ -628,7 +628,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (generation != sessionGeneration) return@launch
         runCatching { graph.api.library() }.onSuccess { rawValue ->
             if (generation != sessionGeneration) return@onSuccess
-            val value = normalizeLibraryData(rawValue)
+            val value = withContext(Dispatchers.Default) { normalizeLibraryData(rawValue) }
+            if (generation != sessionGeneration) return@onSuccess
             _state.update { it.copy(library = value, offlineSnapshot = false) }
             cacheAccountSnapshot(library = value)
         }.onFailure { error ->
@@ -639,6 +640,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun restoreAccountSnapshot() {
+        if (_state.value.home != null && _state.value.library != null) return
         val owner = accountId ?: "guest"
         val raw = graph.settings.accountSnapshots.first()
         val cached = withContext(Dispatchers.Default) {

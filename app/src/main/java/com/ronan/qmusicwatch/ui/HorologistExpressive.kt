@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -210,7 +211,7 @@ private fun ExpressivePlayPauseButton(
         ),
         label = "scallopRotationProgress",
     )
-    val shape = remember(playing) { ExpressiveScallopShape(playing, morphProgress, rotation) }
+    val shape = remember(playing) { ExpressiveScallopShape(playing, morphProgress) }
     val haptics = LocalHapticFeedback.current
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         ExpressiveWavyProgress(
@@ -225,8 +226,7 @@ private fun ExpressivePlayPauseButton(
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { scaleX = .86f; scaleY = .86f }
-                .clip(shape)
+                .graphicsLayer { scaleX = .86f; scaleY = .86f; rotationZ = rotation.value * 360f }
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -240,7 +240,7 @@ private fun ExpressivePlayPauseButton(
             color = accent,
             contentColor = Color(0xFF24143C),
         ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = -rotation.value * 360f }, contentAlignment = Alignment.Center) {
                 if (loading) {
                     CircularProgressIndicator(
                         Modifier.size(22.dp),
@@ -262,7 +262,6 @@ private fun ExpressivePlayPauseButton(
 private class ExpressiveScallopShape(
     private val playing: Boolean,
     private val morphProgress: State<Float>,
-    private val rotationProgress: State<Float>,
 ) : Shape {
     private val matrix = Matrix()
     private val androidPath = android.graphics.Path()
@@ -294,7 +293,6 @@ private class ExpressiveScallopShape(
         } else cachedMorph!!
         matrix.reset()
         androidPath.reset()
-        matrix.rotateZ(rotationProgress.value * 360f)
         val path = morph.toPath(morphProgress.value, androidPath).asComposePath().apply {
             transform(matrix)
             translate(androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f))
@@ -313,6 +311,7 @@ private fun ExpressiveWavyProgress(
     trackColor: Color,
     modifier: Modifier = Modifier,
 ) {
+    val currentProgress = rememberUpdatedState(progress)
     val indicatorPath = remember { Path() }
     val trackPath = remember { Path() }
     val wrappedIndicatorPath = remember { Path() }
@@ -343,30 +342,29 @@ private fun ExpressiveWavyProgress(
                 .apply { translate(Offset(size.width / 2f, size.height / 2f)) }
             measure.setPath(path, true)
             val length = measure.length
-            val value = progress.coerceIn(0f, 1f)
-            val rotation = rotationProgress.value
             val gap = length * .006f + strokePx
-
-            indicatorPath.reset()
-            measure.getSegment(
-                length * abs(rotation) + gap / 2f,
-                max(length * (value - rotation) - gap / 2f, length * abs(rotation) + gap / 2f + .1f),
-                indicatorPath,
-            )
-            trackPath.reset()
-            measure.getSegment(
-                max(length * (value - rotation) + gap / 2f, length * abs(rotation) + gap * 1.5f),
-                min(length * (1f - rotation) - gap / 2f, length),
-                trackPath,
-            )
-            wrappedIndicatorPath.reset()
-            measure.getSegment(0f, length * (value - rotation - 1f) - gap / 2f, wrappedIndicatorPath)
-            wrappedTrackPath.reset()
-            measure.getSegment(0f, length * abs(rotation) - gap / 2f, wrappedTrackPath)
-
+            val stroke = Stroke(strokePx, cap = StrokeCap.Round)
             onDrawBehind {
+                val value = currentProgress.value.coerceIn(0f, 1f)
+                val rotation = rotationProgress.value
+                indicatorPath.reset()
+                measure.getSegment(
+                    length * abs(rotation) + gap / 2f,
+                    max(length * (value - rotation) - gap / 2f, length * abs(rotation) + gap / 2f + .1f),
+                    indicatorPath,
+                )
+                trackPath.reset()
+                measure.getSegment(
+                    max(length * (value - rotation) + gap / 2f, length * abs(rotation) + gap * 1.5f),
+                    min(length * (1f - rotation) - gap / 2f, length),
+                    trackPath,
+                )
+                wrappedIndicatorPath.reset()
+                measure.getSegment(0f, length * (value - rotation - 1f) - gap / 2f, wrappedIndicatorPath)
+                wrappedTrackPath.reset()
+                measure.getSegment(0f, length * abs(rotation) - gap / 2f, wrappedTrackPath)
+
                 rotate(360f * rotation) {
-                    val stroke = Stroke(strokePx, cap = StrokeCap.Round)
                     drawPath(wrappedTrackPath, trackColor, style = stroke)
                     drawPath(trackPath, trackColor, style = stroke)
                     drawPath(indicatorPath, indicatorColor, style = stroke)

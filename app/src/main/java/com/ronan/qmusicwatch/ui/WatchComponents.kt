@@ -52,6 +52,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
@@ -87,14 +89,15 @@ fun WatchIconButton(
             .size(buttonSize ?: dimensions.touchTarget)
             .clip(CircleShape)
             .background(containerColor, CircleShape)
-            .combinedClickable(
+            .then(if (onLongClick == null) Modifier.clickable(role = Role.Button, onClick = onClick)
+                else Modifier.combinedClickable(
                 role = Role.Button,
                 onClick = onClick,
                 onLongClick = onLongClick?.let { callback -> {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     callback()
                 } },
-            ),
+            )),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription, Modifier.size(dimensions.iconSize), tint = tint)
@@ -284,6 +287,20 @@ fun WatchPrimaryButton(
     }
 }
 
+/** One floating touch target: both the cross and its label stay inside the circle. */
+@Composable
+private fun WatchFloatingCancelButton(modifier: Modifier, size: Dp, onClick: () -> Unit) {
+    Box(modifier.size(size).clip(CircleShape)
+        .background(WatchSurfaceRaised.copy(alpha = .94f), CircleShape)
+        .clickable(role = Role.Button, onClick = onClick).testTag("floating-cancel"),
+        contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Default.Close, null, Modifier.size(20.dp), tint = WatchTextPrimary)
+            Text("取消", color = WatchTextPrimary, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1)
+        }
+    }
+}
+
 @Composable
 fun WatchDialog(
     onDismissRequest: () -> Unit,
@@ -296,6 +313,7 @@ fun WatchDialog(
     floatingClose: Boolean = false,
 ) {
     val dimensions = LocalWatchDimensions.current
+    val floatingCancelSize = maxOf(48.dp, with(LocalDensity.current) { 12.sp.toDp() } + 36.dp)
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -316,7 +334,7 @@ fun WatchDialog(
                     }
                     text?.let {
                         Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
-                            .then(if (floatingClose) Modifier.padding(bottom = 52.dp) else Modifier)) {
+                            .then(if (floatingClose) Modifier.padding(bottom = floatingCancelSize + 8.dp) else Modifier)) {
                             ProvideTextStyle(TextStyle(fontSize = dimensions.secondarySp.sp, color = WatchTextSecondary)) { it() }
                         }
                     } ?: Spacer(Modifier.weight(1f))
@@ -326,10 +344,9 @@ fun WatchDialog(
                         confirmButton()
                     }
                 }
-                if (floatingClose) WatchIconButton(
-                    Icons.Default.Close, "关闭",
+                if (floatingClose) WatchFloatingCancelButton(
                     Modifier.align(Alignment.BottomCenter).padding(bottom = maxHeight * .10f),
-                    containerColor = Color.Transparent, buttonSize = 44.dp, onClick = onDismissRequest,
+                    size = floatingCancelSize, onClick = onDismissRequest,
                 )
                 OppoRoundClock(Modifier.align(Alignment.TopCenter))
             }

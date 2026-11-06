@@ -1,3 +1,4 @@
+# Preserve the established class preload rules.
 Lcom/ronan/qmusicwatch/MainActivity;
 Lcom/ronan/qmusicwatch/MainActivityKt;
 Lcom/ronan/qmusicwatch/AppViewModel;
@@ -6,3 +7,42 @@ Lcom/ronan/qmusicwatch/ui/WatchDesignKt;
 Lcom/ronan/qmusicwatch/ui/WatchComponentsKt;
 Lcom/ronan/qmusicwatch/ui/ArtworkAccentKt;
 Lcom/ronan/qmusicwatch/playback/PlaybackService;
+
+# Curated hot UI paths: startup, list input, playback and lyrics.
+# No broad application/network/serialization wildcard. AGP rewrites through R8.
+HSPLcom/ronan/qmusicwatch/MainActivity;->**(**)**
+HSPLcom/ronan/qmusicwatch/MainActivityKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchComponentsKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/RoundWatchLayoutKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchMiniPlayerKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchNavigationMotion;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchNavigationMotionKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchBackNavigationKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchLyricTextKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/HorologistExpressiveKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchRotaryInputKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/ui/WatchDesignKt;->**(**)**
+HSPLcom/ronan/qmusicwatch/playback/CrownScrollFilter;->**(**)**
+HSPLcom/ronan/qmusicwatch/lyrics/LrcParserKt;->**(**)**
+
+# Additional classes observed compiling during the OWW251 list trace (2026-11-05).
+# Post-startup only: preserve the startup set and avoid a whole-library wildcard.
+HPLandroidx/collection/IntObjectMap;->**(**)**
+HPLandroidx/collection/MutableIntObjectMap;->**(**)**
+HPLandroidx/collection/MutableIntSet;->**(**)**
+HPLandroidx/collection/MutableLongObjectMap;->**(**)**
+HPLandroidx/collection/MutableObjectList;->**(**)**
+HPLandroidx/collection/MutableOrderedScatterSet;->**(**)**
+HPLandroidx/compose/foundation/lazy/LazyListItemProviderKt$rememberLazyListItemProviderLambda$1$1;->**(**)**
+HPLandroidx/compose/material/ripple/AndroidRippleNode;->**(**)**
+HPLandroidx/compose/material3/IconKt;->**(**)**
+HPLandroidx/compose/material3/MinimumInteractiveModifierNode;->**(**)**
+HPLandroidx/compose/material3/internal/ChildSemanticsNode;->**(**)**
+HPLandroidx/compose/runtime/CompositionKt;->**(**)**
+HPLandroidx/compose/runtime/ComputedProvidableCompositionLocal;->**(**)**
+HPLandroidx/compose/runtime/PausableMonotonicFrameClock$withFrameNanos$1;->**(**)**
+HPLandroidx/compose/runtime/snapshots/NestedReadonlySnapshot;->**(**)**
+HPLandroidx/compose/runtime/snapshots/StateListIterator;->**(**)**
+HPLandroidx/compose/ui/graphics/drawscope/CanvasDrawScopeKt$asDrawTransform$1;->**(**)**
+HPLandroidx/compose/ui/graphics/vector/PathBuilder;->**(**)**
+HPLcoil/compose/AsyncImagePainterKt;->**(**)**

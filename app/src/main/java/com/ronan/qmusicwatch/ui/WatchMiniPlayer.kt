@@ -24,6 +24,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -64,6 +67,7 @@ fun WatchMiniPlayer(
     controller: MiniPlayerController,
     modifier: Modifier = Modifier,
     accent: Color = WatchAccent,
+    progressProvider: (() -> Float)? = null,
     onPlayPause: () -> Unit,
     onOpenPlayer: () -> Unit,
 ) {
@@ -71,23 +75,24 @@ fun WatchMiniPlayer(
     val round = dimensions.isRound
     val collapsed = round && controller.collapsed
     val fraction = progress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
-    val morph by animateFloatAsState(
+    val morph = animateFloatAsState(
         targetValue = if (collapsed) 1f else 0f,
         animationSpec = spring(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = .001f),
         label = "miniPlayerMorphProgress",
     )
-    val amount = morph.coerceIn(0f, 1f)
+    val showDetails by remember(collapsed) { derivedStateOf { morph.value < .6f || !collapsed } }
     BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
         val expandedWidth = if (round) maxWidth * .74f else maxWidth - 12.dp
         val expandedHeight = if (round) 46.dp else dimensions.miniPlayerHeight
         val expandedArtwork = if (round) 34.dp else dimensions.artworkSize
-        val width = lerp(expandedWidth, 44.dp, amount)
-        val height = lerp(expandedHeight, 44.dp, amount)
-        val artworkSize = lerp(expandedArtwork, 44.dp, amount)
-        val details = ((.6f - amount) / .6f).coerceIn(0f, 1f)
-        val detailsAlpha = details * details * (3f - 2f * details)
         Surface(
-            Modifier.padding(bottom = if (round) 20.dp else 0.dp).width(width).height(height)
+            Modifier.padding(bottom = if (round) 20.dp else 0.dp).layout { measurable, constraints ->
+                val amount = morph.value.coerceIn(0f, 1f)
+                val width = lerp(expandedWidth, 44.dp, amount).roundToPx()
+                val height = lerp(expandedHeight, 44.dp, amount).roundToPx()
+                val child = measurable.measure(Constraints.fixed(width, height))
+                layout(width, height) { child.place(0, 0) }
+            }
                 .clip(CircleShape)
                 .testTag(if (collapsed) "mini-player-collapsed" else "mini-player-expanded")
                 .clickable(role = Role.Button) {
@@ -99,13 +104,16 @@ fun WatchMiniPlayer(
             Box(Modifier.fillMaxSize()) {
                 // Keep text measured at its expanded width. Fading a stable row
                 // avoids reflowing the title at every intermediate capsule size.
-                if (amount < .6f || !collapsed) {
+                if (showDetails) {
                     Row(
                         Modifier.offset(x = 7.dp + expandedArtwork + 7.dp)
                             .wrapContentWidth(Alignment.Start, unbounded = true)
                             .width((expandedWidth - 7.dp - expandedArtwork - 7.dp - 3.dp).coerceAtLeast(1.dp))
                             .height(expandedHeight)
-                            .graphicsLayer { alpha = detailsAlpha }
+                            .graphicsLayer {
+                                val details = ((.6f - morph.value.coerceIn(0f, 1f)) / .6f).coerceIn(0f, 1f)
+                                alpha = details * details * (3f - 2f * details)
+                            }
                             .then(if (collapsed) Modifier.clearAndSetSemantics {} else Modifier),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -126,16 +134,23 @@ fun WatchMiniPlayer(
                 // One artwork and one ring survive both states and interruptions.
                 // As the centered capsule shrinks, its left inset tends to zero,
                 // carrying the original album smoothly to the screen center.
-                AlbumProgressRing(artwork, fraction,
-                    Modifier.offset(x = lerp(7.dp, 0.dp, amount), y = (height - artworkSize) / 2)
-                        .size(artworkSize).testTag("mini-player-artwork"), accent)
+                AlbumProgressRing(artwork, progressProvider ?: { fraction },
+                    Modifier.offset {
+                        val amount = morph.value.coerceIn(0f, 1f)
+                        IntOffset(lerp(7.dp, 0.dp, amount).roundToPx(),
+                            ((lerp(expandedHeight, 44.dp, amount) - lerp(expandedArtwork, 44.dp, amount)) / 2).roundToPx())
+                    }.layout { measurable, _ ->
+                        val side = lerp(expandedArtwork, 44.dp, morph.value.coerceIn(0f, 1f)).roundToPx()
+                        val child = measurable.measure(Constraints.fixed(side, side))
+                        layout(side, side) { child.place(0, 0) }
+                    }.testTag("mini-player-artwork"), accent)
             }
         }
     }
 }
 
 @Composable
-private fun AlbumProgressRing(artwork: Any?, progress: Float, modifier: Modifier, accent: Color) {
+private fun AlbumProgressRing(artwork: Any?, progress: () -> Float, modifier: Modifier, accent: Color) {
     val fallback = painterResource(R.drawable.ic_launcher)
     Box(modifier, contentAlignment = Alignment.Center) {
         AsyncImage(
@@ -144,13 +159,14 @@ private fun AlbumProgressRing(artwork: Any?, progress: Float, modifier: Modifier
             contentScale = ContentScale.Crop, placeholder = fallback, fallback = fallback, error = fallback,
         )
         Canvas(Modifier.fillMaxSize().testTag("mini-player-progress")
-            .semantics { progressBarRangeInfo = ProgressBarRangeInfo(progress, 0f..1f) }) {
+            .semantics { progressBarRangeInfo = ProgressBarRangeInfo(progress().takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f, 0f..1f) }) {
+            val fraction = progress().takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
             val stroke = 2.dp.toPx()
             val inset = stroke / 2
             val arcSize = Size(size.width - stroke, size.height - stroke)
             drawArc(WatchDivider, -90f, 360f, false, Offset(inset, inset), arcSize,
                 style = Stroke(stroke, cap = StrokeCap.Round))
-            if (progress > 0) drawArc(accent, -90f, 360f * progress, false, Offset(inset, inset), arcSize,
+            if (fraction > 0) drawArc(accent, -90f, 360f * fraction, false, Offset(inset, inset), arcSize,
                 style = Stroke(stroke, cap = StrokeCap.Round))
         }
     }
