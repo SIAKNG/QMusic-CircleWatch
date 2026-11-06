@@ -715,9 +715,11 @@ class ApiClient(
     private val cookie: () -> String?,
     /** Persists a refreshed cookie; returns false when persistence did not happen. */
     private val updateCookie: (staleCookie: String, refreshedCookie: String) -> Boolean = { _, _ -> false },
+    transport: OkHttpClient? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-    private val http = OkHttpClient.Builder()
+    private val http = transport ?: OkHttpClient.Builder()
+        .eventListenerFactory { NetworkTiming() }
         .callTimeout(18, TimeUnit.SECONDS)
         .followRedirects(false)
         .followSslRedirects(false)
@@ -978,20 +980,21 @@ class ApiClient(
         }
     }
 
-    suspend fun library(): LibraryData = withContext(Dispatchers.IO) {
+    suspend fun library(onPlaylists: (suspend (owned: List<MusicCollection>?, collected: List<MusicCollection>?) -> Unit)? = null, onLikedProgress: (suspend (Int) -> Unit)? = null): LibraryData = withContext(Dispatchers.IO) {
         requireLogin()
         coroutineScope {
             val playlistsTask = async {
                 api("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin", obj("uin" to accountId()))
+                    .also { onPlaylists?.invoke(parseAccountPlaylists(it), null) }
             }
             val collectedTask = async {
                 runCatching { favoritePlaylists() }.onFailure { error ->
                     val detail = (error as? QqBusinessException)?.let { "business_code=${it.businessCode}" }
                         ?: "${error.javaClass.simpleName}"
                     AppLog.write("LIBRARY", "favorite playlists unavailable $detail")
-                }.getOrDefault(emptyList())
+                }.getOrDefault(emptyList()).also { onPlaylists?.invoke(null, it) }
             }
-            val likedTask = async { likedTracks() }
+            val likedTask = async { likedTracks(onLikedProgress) }
             val playlists = playlistsTask.await()
             val collectedPlaylists = collectedTask.await()
             val likedTracks = likedTask.await()
@@ -1002,7 +1005,8 @@ class ApiClient(
         }
     }
 
-    private suspend fun likedTracks(): List<Track> = collectQqTrackPages(
+    private suspend fun likedTracks(onProgress: (suspend (Int) -> Unit)? = null): List<Track> = collectQqTrackPages(
+        parallelism = 2, onProgress = onProgress?.let { publish -> { tracks -> publish(tracks.size) } },
         fetchPage = { offset, size ->
             api(
                 "music.srfDissInfo.DissInfo", "CgiGetDiss",
@@ -1060,7 +1064,7 @@ class ApiClient(
         return playlists
     }
 
-    suspend fun profile(): UserProfile = withContext(Dispatchers.IO) {
+    suspend fun profile(onIdentity: (suspend (UserProfile) -> Unit)? = null): UserProfile = withContext(Dispatchers.IO) {
         requireLogin()
         val id = accountId()
         val roots = coroutineScope {
@@ -1073,6 +1077,7 @@ class ApiClient(
                             obj("user_uin" to id, "login_uin" to id, "uin" to id),
                         )
                     }.getOrNull()?.also { data ->
+                        parseUserProfile(data)?.takeIf { it.displayName.isNotBlank() || it.avatarUrl.isNotBlank() }?.let { onIdentity?.invoke(it) }
                         AppLog.write("PROFILE", "$method keys=${data.keys.joinToString(",").take(300)}")
                     }
                 }
@@ -1155,9 +1160,9 @@ class ApiClient(
         Ack(true)
     }
 
-    suspend fun collection(type: String, collection: MusicCollection): CollectionDetail = withContext(Dispatchers.IO) {
+    suspend fun collection(type: String, collection: MusicCollection, onProgress: (suspend (Int) -> Unit)? = null): CollectionDetail = withContext(Dispatchers.IO) {
         var title = collection.title.ifBlank { "详情" }
-        val tracks = collectQqTrackPages(fetchPage = { begin, size ->
+        val tracks = collectQqTrackPages(parallelism = 2, onProgress = onProgress?.let { publish -> { tracks -> publish(tracks.size) } }, fetchPage = { begin, size ->
             val data = when (type) {
                 "album" -> api("music.musichallAlbum.AlbumSongList", "GetAlbumSongList", obj("albumMid" to collection.id, "begin" to begin, "num" to size, "order" to 2))
                 "artist" -> api("musichall.song_list_server", "GetSingerSongList", obj("singerMid" to collection.id, "begin" to begin, "num" to size, "order" to 1))
@@ -1281,7 +1286,7 @@ class ApiClient(
         val payload = qqMusicuPayload(comm, module, method, param, requestKey)
         val started = System.currentTimeMillis()
         val result = try {
-            musicuRequest(payload, requestCookie, comm.int("ct") == 11, callTimeoutMs, requestKey, formEncodedJson)
+            musicuRequest(payload, requestCookie, comm.int("ct") == 11, callTimeoutMs, requestKey, formEncodedJson, "$module/$method")
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
@@ -1290,7 +1295,7 @@ class ApiClient(
                 AppLog.write("API", "$module/$method transient=${error.javaClass.simpleName} retry=1 delay_ms=$delayMs")
                 delay(delayMs)
                 try {
-                    musicuRequest(payload, requestCookie, comm.int("ct") == 11, callTimeoutMs, requestKey, formEncodedJson)
+                    musicuRequest(payload, requestCookie, comm.int("ct") == 11, callTimeoutMs, requestKey, formEncodedJson, "$module/$method")
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (retryError: Throwable) {
@@ -1343,15 +1348,16 @@ class ApiClient(
         return result["data"]?.jsonObject ?: JsonObject(emptyMap())
     }
 
-    private fun musicuRequest(
+    private suspend fun musicuRequest(
         payload: JsonObject,
         requestCookie: String?,
         androidClient: Boolean,
         callTimeoutMs: Long?,
         requestKey: String,
         formEncodedJson: Boolean,
+        operation: String,
     ): JsonObject {
-        val builder = Request.Builder()
+        val builder = Request.Builder().tag(ReadRequestTag::class.java, ReadRequestTag(operation))
             .url(QQ_MUSICU_URL)
             .post(payload.toString().toRequestBody(if (formEncodedJson) FORM_JSON_MEDIA else JSON_MEDIA))
             .header("Accept", "application/json")
@@ -1368,7 +1374,7 @@ class ApiClient(
         requestCookie?.takeIf(String::isNotBlank)?.let { builder.header("Cookie", it) }
         val call = http.newCall(builder.build())
         callTimeoutMs?.takeIf { it > 0 }?.let { call.timeout().timeout(it, TimeUnit.MILLISECONDS) }
-        call.execute().use { response ->
+        return call.awaitBody { response ->
             val body = response.body?.byteStream()?.use(::readBoundedBody).orEmpty()
             if (!response.isSuccessful) {
                 throw QqHttpException(
@@ -1379,7 +1385,7 @@ class ApiClient(
             }
             val root = runCatching { json.parseToJsonElement(body).jsonObject }
                 .getOrElse { throw QqResponseException("QQ 音乐响应格式无效", it) }
-            return (root[requestKey] as? JsonObject)
+            (root[requestKey] as? JsonObject)
                 ?: (root["req_0"] as? JsonObject)
                 ?: (root["req"] as? JsonObject)
                 ?: throw QqResponseException("QQ 音乐响应缺少请求结果")
@@ -1429,13 +1435,13 @@ class ApiClient(
     }
 
     private suspend fun legacyGet(url: okhttp3.HttpUrl, operation: String, requestCookie: String? = null): JsonObject {
-        fun execute(): JsonObject {
-            val builder = Request.Builder().url(url)
+        suspend fun execute(): JsonObject {
+            val builder = Request.Builder().url(url).tag(ReadRequestTag::class.java, ReadRequestTag("legacy/$operation"))
                 .header("Accept", "application/json")
                 .header("Referer", "https://y.qq.com/")
                 .header("User-Agent", WEB_UA)
             requestCookie?.takeIf(String::isNotBlank)?.let { builder.header("Cookie", it) }
-            http.newCall(builder.build()).execute().use { response ->
+            return http.newCall(builder.build()).awaitBody { response ->
                 val body = response.body?.byteStream()?.use(::readBoundedBody).orEmpty()
                 if (!response.isSuccessful) {
                     throw QqHttpException(
@@ -1444,7 +1450,7 @@ class ApiClient(
                         response.header("Retry-After")?.toLongOrNull()?.times(1_000L) ?: 0L,
                     )
                 }
-                return runCatching { json.parseToJsonElement(body).jsonObject }
+                runCatching { json.parseToJsonElement(body).jsonObject }
                     .getOrElse { throw QqResponseException("QQ 音乐响应格式无效", it) }
             }
         }

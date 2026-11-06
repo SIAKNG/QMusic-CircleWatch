@@ -11,6 +11,9 @@ plugins {
 }
 
 val expectedReleaseCertificateSha256 = "35c97202a545d2886448892d005a1754857b0951a1dff7849856d9d31a4e8dcd"
+// Explicit opt-in for the manufacturer's fixed package-name media filter.
+// This retains our own signer, branding and disabled upstream APK updates.
+val oppoMediaCompat = providers.gradleProperty("oppoMediaCompat").orNull == "true"
 val releaseSigningProperties = Properties()
 val releaseSigningPropertiesFile = rootProject.file("release-signing.properties")
 if (releaseSigningPropertiesFile.isFile) {
@@ -54,7 +57,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.qmusicwatch.round"
+        applicationId = if (oppoMediaCompat) "com.tencent.qqmusicwatch" else "com.qmusicwatch.round"
         minSdk = 24
         targetSdk = 36
         versionCode = 2

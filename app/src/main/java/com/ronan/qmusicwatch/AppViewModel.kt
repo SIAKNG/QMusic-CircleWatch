@@ -44,7 +44,7 @@ private const val PLAYBACK_RECOVERY_NOTICE_TIMEOUT_MS = 65_000L
 
 data class AppUiState(
     val loading: Boolean = false, val sessionLoaded: Boolean = false, val message: String? = null, val home: HomeData? = null,
-    val library: LibraryData? = null, val recent: List<Track> = emptyList(), val recentLoaded: Boolean = false,
+    val library: LibraryData? = null, val libraryLoading: Boolean = false, val libraryLoadedCount: Int = 0, val libraryError: String? = null, val recent: List<Track> = emptyList(), val recentLoaded: Boolean = false,
     val searchTracks: List<Track> = emptyList(),
     val searchCollections: List<MusicCollection> = emptyList(), val searchType: String = "track",
     val searchQuery: String = "", val searchCursor: String? = null, val searchLoading: Boolean = false,
@@ -53,7 +53,7 @@ data class AppUiState(
     val lyrics: List<LyricLine> = emptyList(), val pendingSpeakerTrack: Track? = null, val playbackLoading: Boolean = false,
     val lyricsLoading: Boolean = false, val lyricsError: String? = null,
     val detail: CollectionDetail? = null, val detailDirectoryId: String? = null,
-    val detailLoading: Boolean = false, val detailError: String? = null, val playEvent: Long = 0,
+    val detailLoading: Boolean = false, val detailLoadedCount: Int = 0, val detailError: String? = null, val playEvent: Long = 0,
     val diagnostic: String? = null, val profile: UserProfile? = null, val profileLoaded: Boolean = false,
     val profileError: String? = null, val offlineSnapshot: Boolean = false,
     val releaseInfo: ReleaseInfo? = null, val updateChecking: Boolean = false,
@@ -206,6 +206,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var playJob: Job? = null
     private var qualitySwitchJob: Job? = null
     private var searchJob: Job? = null
+    private var libraryJob: Job? = null
+    private var profileJob: Job? = null
+    private var libraryReadGeneration = 0L
+    private var profileReadGeneration = 0L
+    private var lastLibraryRefreshAt = 0L
+    private data class CachedDetail(val value: CollectionDetail, val at: Long)
+    private val detailCache = object : LinkedHashMap<String, CachedDetail>(3, .75f, true) {}
+    private var detailReadGeneration = 0L
     private var detailJob: Job? = null
     private var detailRequest: Triple<String, MusicCollection, Boolean>? = null
     private var queueImportJob: Job? = null
@@ -575,11 +583,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             graph.vault.save(session)
             currentSession = session
             sessionGeneration++
+            libraryJob?.cancel(); profileJob?.cancel(); lastLibraryRefreshAt = 0L; invalidateDetailReads()
             lyricRequests.clear()
             searchJob?.cancel(); searchJob = null
             detailJob?.cancel(); detailJob = null; queueImportJob?.cancel(); queueImportJob = null
             _state.update { s -> s.copy(
-                home = null, library = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
+                home = null, library = null, libraryLoading = false, libraryError = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
                 detail = null, detailDirectoryId = null, offlineSnapshot = false,
                 pendingSpeakerTrack = null,
                 queueImportTitle = "", queueImportTracks = emptyList(), queueImportLoading = false, searchLoading = false,
@@ -602,6 +611,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         qualitySwitchJob?.cancel(); qualitySwitchJob = null
         clearServiceRecovery()
         searchJob?.cancel(); searchJob = null; sessionGeneration++
+        libraryJob?.cancel(); profileJob?.cancel(); lastLibraryRefreshAt = 0L; invalidateDetailReads()
         lyricRequests.clear()
         qrLoginJob?.cancel(); qrLoginJob = null
         detailJob?.cancel(); detailJob = null; queueImportJob?.cancel(); queueImportJob = null
@@ -611,7 +621,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         restoredPosition = 0; lastStreamUrl = ""; lastStreamExpiresAt = 0
         viewModelScope.launch { graph.settings.setPlaybackSnapshot(""); graph.settings.setProfileCache("") }
         _state.update { it.copy(
-            home = null, library = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
+            home = null, library = null, libraryLoading = false, libraryError = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
             searchTracks = emptyList(), searchCollections = emptyList(), searchCursor = null, searchLoading = false,
             currentTrack = null, lyrics = emptyList(), lyricsLoading = false, lyricsError = null, pendingSpeakerTrack = null, detail = null, detailDirectoryId = null,
             queueImportTitle = "", queueImportTracks = emptyList(), queueImportLoading = false,
@@ -620,67 +630,120 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ) }
         loadHome()
     }
-    fun loadLibrary() = viewModelScope.launch {
-        sessionReady.await()
-        if (!signedIn) return@launch fail(IllegalStateException("请先登录"))
-        val generation = sessionGeneration
-        restoreAccountSnapshot()
-        if (generation != sessionGeneration) return@launch
-        runCatching { graph.api.library() }.onSuccess { rawValue ->
-            if (generation != sessionGeneration) return@onSuccess
-            val value = withContext(Dispatchers.Default) { normalizeLibraryData(rawValue) }
-            if (generation != sessionGeneration) return@onSuccess
-            _state.update { it.copy(library = value, offlineSnapshot = false) }
-            cacheAccountSnapshot(library = value)
-        }.onFailure { error ->
-            if (generation != sessionGeneration) return@onFailure
-            if (_state.value.library != null) _state.update { it.copy(offlineSnapshot = true, message = "网络不可用，正在显示离线收藏与歌单") }
-            else fail(error)
-        }
+    fun loadLibrary(force: Boolean = false): Job {
+        libraryJob?.takeIf { it.isActive && !force }?.let { return it }
+        if (!force && _state.value.library != null && lastLibraryRefreshAt > 0 &&
+            android.os.SystemClock.elapsedRealtime() - lastLibraryRefreshAt < 10_000L) return viewModelScope.launch {}
+        libraryJob?.cancel()
+        val request = ++libraryReadGeneration
+        return viewModelScope.launch {
+            sessionReady.await()
+            if (!signedIn) return@launch fail(IllegalStateException("请先登录"))
+            val generation = sessionGeneration
+            val started = android.os.SystemClock.elapsedRealtime()
+            restoreAccountSnapshot()
+            if (generation != sessionGeneration || request != libraryReadGeneration) return@launch
+            _state.update { it.copy(libraryLoading = true, libraryLoadedCount = 0, libraryError = null) }
+            try {
+                val rawValue = graph.api.library(onPlaylists = { owned, collected ->
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == sessionGeneration && request == libraryReadGeneration) _state.update { state ->
+                            val old = state.library ?: LibraryData(emptyList(), emptyList())
+                            state.copy(library = LibraryData(old.liked, mergeLibraryPlaylists(
+                                owned ?: old.playlists.filter { it.owned != false },
+                                collected ?: old.playlists.filter { it.owned == false })))
+                        }
+                    }
+                    reportReadPerformance("library", "directory", started)
+                }, onLikedProgress = { count ->
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == sessionGeneration && request == libraryReadGeneration && _state.value.library?.liked.isNullOrEmpty()) {
+                            if (_state.value.libraryLoadedCount == 0) reportReadPerformance("library", "first_page", started, count)
+                            _state.update { it.copy(libraryLoadedCount = count) }
+                        }
+                    }
+                })
+                val value = withContext(Dispatchers.Default) { normalizeLibraryData(rawValue) }
+                if (generation != sessionGeneration || request != libraryReadGeneration) return@launch
+                lastLibraryRefreshAt = android.os.SystemClock.elapsedRealtime()
+                _state.update { it.copy(library = value, libraryLoading = false, libraryError = null, offlineSnapshot = false) }
+                reportReadPerformance("library", "complete", started, value.liked.size)
+                cacheAccountSnapshot(library = value)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Throwable) {
+                if (generation != sessionGeneration || request != libraryReadGeneration) return@launch
+                _state.update { it.copy(libraryLoading = false, libraryError = "音乐库读取失败，可重试", offlineSnapshot = it.library != null) }
+                reportReadPerformance("library", "error", started)
+                if (_state.value.library == null) fail(error)
+            }
+        }.also { libraryJob = it }
     }
 
     private suspend fun restoreAccountSnapshot() {
         if (_state.value.home != null && _state.value.library != null) return
         val owner = accountId ?: "guest"
+        val generation = sessionGeneration
         val raw = graph.settings.accountSnapshots.first()
         val cached = withContext(Dispatchers.Default) {
             runCatching { json.decodeFromString<CachedAccountSnapshots>(raw) }.getOrNull()
-        }?.items?.firstOrNull { it.accountId == owner } ?: return
+                ?.items?.firstOrNull { it.accountId == owner }
+                ?.let { it.copy(library = it.library?.let(::normalizeLibraryData)) }
+        } ?: return
+        if (owner != (accountId ?: "guest") || generation != sessionGeneration) return
         _state.update { state -> state.copy(
             home = state.home ?: cached.home,
-            library = state.library ?: cached.library?.let(::normalizeLibraryData),
+            library = state.library ?: cached.library,
             offlineSnapshot = true,
         ) }
     }
 
-    private suspend fun cacheAccountSnapshot(home: HomeData? = null, library: LibraryData? = null) = snapshotMutex.withLock {
-        val owner = accountId ?: "guest"
+    private suspend fun cacheAccountSnapshot(home: HomeData? = null, library: LibraryData? = null,
+        expectedOwner: String = accountId ?: "guest", expectedGeneration: Long = sessionGeneration) = snapshotMutex.withLock {
+        if (expectedGeneration != sessionGeneration || expectedOwner != (accountId ?: "guest")) return@withLock
+        val owner = expectedOwner
         val raw = graph.settings.accountSnapshots.first()
         val cache = withContext(Dispatchers.Default) {
             runCatching { json.decodeFromString<CachedAccountSnapshots>(raw) }.getOrDefault(CachedAccountSnapshots())
         }
         val old = cache.items.firstOrNull { it.accountId == owner }
-        val normalizedLibrary = (library ?: old?.library)?.let(::normalizeLibraryData)
+        val normalizedLibrary = withContext(Dispatchers.Default) { (library ?: old?.library)?.let(::normalizeLibraryData) }
         val updated = CachedAccountSnapshot(owner, home ?: old?.home, normalizedLibrary, System.currentTimeMillis())
         val serialized = withContext(Dispatchers.Default) { json.encodeToString(upsertAccountSnapshot(cache, updated)) }
+        if (expectedGeneration != sessionGeneration || owner != (accountId ?: "guest")) return@withLock
         graph.settings.setAccountSnapshots(serialized)
     }
-    fun loadProfile(force: Boolean = false) = viewModelScope.launch {
-        val generation = sessionGeneration
-        profileCacheReady.await()
-        if (!signedIn || (!force && _state.value.profileLoaded)) return@launch
-        if (!featureEnabled("profile")) return@launch _state.update { it.copy(profileLoaded = true, profileError = featureMessage("profile").ifBlank { "账号资料服务暂时维护" }) }
-        runCatching { graph.api.profile() }.onSuccess { rawProfile ->
-            if (generation != sessionGeneration) return@onSuccess
-            val profile = normalizeUserProfile(rawProfile)
-            _state.update { it.copy(profile = profile, profileLoaded = true, profileError = null) }
-            graph.settings.setProfileCache(json.encodeToString(CachedUserProfile(accountId.orEmpty(), profile, System.currentTimeMillis())))
-        }
-            .onFailure { error ->
-                if (generation != sessionGeneration) return@onFailure
+    fun loadProfile(force: Boolean = false): Job {
+        profileJob?.takeIf { it.isActive && !force }?.let { return it }
+        profileJob?.cancel()
+        val request = ++profileReadGeneration
+        return viewModelScope.launch {
+            val generation = sessionGeneration
+            profileCacheReady.await()
+            if (!signedIn || (!force && _state.value.profileLoaded)) return@launch
+            if (!featureEnabled("profile")) return@launch _state.update { it.copy(profileLoaded = true, profileError = featureMessage("profile").ifBlank { "账号资料服务暂时维护" }) }
+            val started = android.os.SystemClock.elapsedRealtime()
+            try {
+                var identityReported = false
+                val rawProfile = graph.api.profile { identity ->
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == sessionGeneration && request == profileReadGeneration) _state.update {
+                            it.copy(profile = mergeProfileIdentity(it.profile, identity))
+                        }
+                        if (!identityReported) { reportReadPerformance("profile", "identity", started); identityReported = true }
+                    }
+                }
+                if (generation != sessionGeneration || request != profileReadGeneration) return@launch
+                val profile = normalizeUserProfile(rawProfile)
+                _state.update { it.copy(profile = profile, profileLoaded = true, profileError = null) }
+                reportReadPerformance("profile", "complete", started)
+                graph.settings.setProfileCache(json.encodeToString(CachedUserProfile(accountId.orEmpty(), profile, System.currentTimeMillis())))
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Throwable) {
+                if (generation != sessionGeneration || request != profileReadGeneration) return@launch
                 AppLog.write("PROFILE", "${error.javaClass.simpleName}:${error.message.orEmpty()}")
                 _state.update { it.copy(profileLoaded = true, profileError = "会员状态读取失败，可点检查登录重试") }
             }
+        }.also { profileJob = it }
     }
     /** Refreshes only the account profile, so the settings page can update VIP rights without a full playback diagnostic. */
     fun refreshMembership() = viewModelScope.launch {
@@ -1076,60 +1139,72 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .onSuccess {
                 _state.update { state -> state.copy(message = if (liked) "已添加到我喜欢" else "已取消喜欢") }
                 onComplete(true)
-                loadLibrary()
+                invalidateDetailReads(); loadLibrary(force = true)
             }
             .onFailure { error ->
                 onComplete(false)
                 fail(error)
             }
     }
-    fun loadDetail(type: String, collection: MusicCollection, editable: Boolean = false) {
+    private fun invalidateDetailReads() {
+        detailCache.clear()
+        detailJob?.cancel()
+        detailReadGeneration++
+        _state.update { it.copy(detailLoading = false) }
+    }
+    fun loadDetail(type: String, collection: MusicCollection, editable: Boolean = false, force: Boolean = false) {
+        val key = "$sessionGeneration:$type:${collection.id}:${collection.directoryId}"
+        val previous = detailRequest
+        val same = previous?.first == type && previous.second.id == collection.id && previous.second.directoryId == collection.directoryId && previous.third == editable
+        if (!force && same && detailJob?.isActive == true) return
         detailJob?.cancel()
         detailRequest = Triple(type, collection, editable)
+        val request = ++detailReadGeneration
         val generation = sessionGeneration
-        _state.update { it.copy(detail = null, detailDirectoryId = null, detailLoading = true, detailError = null) }
+        val cached = detailCache[key]
+        val now = android.os.SystemClock.elapsedRealtime()
+        val fresh = !force && cached != null && now - cached.at < 10_000L
+        _state.update { it.copy(detail = cached?.value ?: CollectionDetail(collection.title, emptyList()),
+            detailDirectoryId = collection.directoryId.takeIf { editable }, detailLoadedCount = cached?.value?.tracks?.size ?: 0,
+            detailLoading = !fresh, detailError = null) }
+        if (fresh) { reportReadPerformance("detail", "cache", now, cached!!.value.tracks.size); return }
         detailJob = viewModelScope.launch {
+            val started = android.os.SystemClock.elapsedRealtime()
             try {
-                val value = graph.api.collection(type, collection)
-                if (generation == sessionGeneration) _state.update {
-                    it.copy(
-                        detail = value,
-                        detailDirectoryId = collection.directoryId.takeIf { editable },
-                        detailLoading = false,
-                        detailError = null,
-                    )
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                if (generation == sessionGeneration) {
-                    _state.update {
-                        it.copy(
-                            detailLoading = false,
-                            detailError = error.message?.takeIf(String::isNotBlank) ?: "歌单读取失败",
-                        )
+                val value = graph.api.collection(type, collection) { count ->
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == sessionGeneration && request == detailReadGeneration) {
+                            if (_state.value.detailLoadedCount == 0) reportReadPerformance("detail", "first_page", started, count)
+                            _state.update { it.copy(detailLoadedCount = count) }
+                        }
                     }
-                    AppLog.write(
-                        "DETAIL",
-                        "${error.javaClass.simpleName}:${error.message.orEmpty()}",
-                    )
                 }
+                if (generation != sessionGeneration || request != detailReadGeneration) return@launch
+                if (value.tracks.size <= 3_000) {
+                    detailCache[key] = CachedDetail(value, android.os.SystemClock.elapsedRealtime())
+                    while (detailCache.size > 2 || detailCache.values.sumOf { it.value.tracks.size } > 3_000) detailCache.remove(detailCache.keys.first())
+                }
+                _state.update { it.copy(detail = value, detailLoadedCount = value.tracks.size, detailLoading = false, detailError = null) }
+                reportReadPerformance("detail", "complete", started, value.tracks.size)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Throwable) {
+                if (generation == sessionGeneration && request == detailReadGeneration) _state.update {
+                    it.copy(detailLoading = false, detailError = error.message?.takeIf(String::isNotBlank) ?: "歌单读取失败")
+                }
+                AppLog.write("DETAIL", "${error.javaClass.simpleName}:${error.message.orEmpty()}")
             }
         }
     }
-    fun retryDetail() {
-        detailRequest?.let { (type, collection, editable) ->
-            loadDetail(type, collection, editable)
-        }
-    }
-    fun createPlaylist(title: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.createPlaylist(title) }.onSuccess { loadLibrary() }.onFailure(::fail) }
-    fun renamePlaylist(id: String, title: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.renamePlaylist(id, title) }.onSuccess { loadLibrary() }.onFailure(::fail) }
-    fun deletePlaylist(id: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.deletePlaylist(id) }.onSuccess { loadLibrary() }.onFailure(::fail) }
-    fun addToPlaylist(track: Track, id: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.changePlaylistTrack(id, track, true) }.onSuccess { _state.update { it.copy(message = "已加入歌单") }; loadLibrary() }.onFailure(::fail) }
+    fun retryDetail() { detailRequest?.let { (type, collection, editable) -> loadDetail(type, collection, editable, force = true) } }
+    fun createPlaylist(title: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.createPlaylist(title) }.onSuccess { invalidateDetailReads(); loadLibrary(force = true) }.onFailure(::fail) }
+    fun renamePlaylist(id: String, title: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.renamePlaylist(id, title) }.onSuccess { invalidateDetailReads(); loadLibrary(force = true) }.onFailure(::fail) }
+    fun deletePlaylist(id: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.deletePlaylist(id) }.onSuccess { invalidateDetailReads(); loadLibrary(force = true) }.onFailure(::fail) }
+    fun addToPlaylist(track: Track, id: String) = viewModelScope.launch { if (requirePlaylistWrites()) runCatching { graph.api.changePlaylistTrack(id, track, true) }.onSuccess { _state.update { it.copy(message = "已加入歌单") }; invalidateDetailReads(); loadLibrary(force = true) }.onFailure(::fail) }
     fun removeFromPlaylist(track: Track, id: String) = viewModelScope.launch {
         if (!requirePlaylistWrites()) return@launch
         runCatching { graph.api.changePlaylistTrack(id, track, false) }
             .onSuccess {
+                invalidateDetailReads()
                 val tracks = _state.value.detail?.tracks.orEmpty().filterNot { item -> item.id == track.id }
                 _state.update { state -> state.copy(message = "已从歌单移除", detail = state.detail?.copy(tracks = tracks)) }
             }

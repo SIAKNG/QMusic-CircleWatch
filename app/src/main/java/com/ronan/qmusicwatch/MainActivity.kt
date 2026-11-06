@@ -672,7 +672,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { if (vm.signedIn) vm.loadLibrary() }
                 QueueScreen(queue, queueIndex, queueReversed, pageState, vm) { nav.popBackStack() }
             }
-            watchDestination("detail") { val pageState by vm.state.collectAsStateWithLifecycle(); DetailScreen(pageState.detail, pageState.detailDirectoryId, pageState.detailLoading, pageState.detailError, writablePlaylists(pageState.library?.playlists.orEmpty()), vm) { nav.popBackStack() } }
+            watchDestination("detail") { val pageState by vm.state.collectAsStateWithLifecycle(); DetailScreen(pageState.detail, pageState.detailDirectoryId, pageState.detailLoading, pageState.detailError, writablePlaylists(pageState.library?.playlists.orEmpty()), vm, onBack = { nav.popBackStack() }, loadedCount = pageState.detailLoadedCount) }
             watchDestination("settings") { SettingsCenter(nav) { nav.popBackStack() } }
             watchDestination("settings/display") { DisplaySettingsScreen(vm, uiSize, lyricSize, lyricOriginal, lyricTranslation, lyricOffset, lyricAnimation, lyricAlignment, pureBlack, lowPowerPlayer) { nav.popBackStack() } }
             watchDestination("settings/playback") {
@@ -895,7 +895,7 @@ class MainActivity : ComponentActivity() {
                 else {
                     item {
                         Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            LibraryStat("喜欢", state.library?.liked?.size ?: 0, Icons.Default.Favorite, WatchLike) { nav.navigate(libraryRoute(LibrarySection.Liked)) }
+                            LibraryStat("喜欢", state.library?.liked?.size ?: 0, Icons.Default.Favorite, WatchLike, loading = state.libraryLoading && state.library?.liked.isNullOrEmpty()) { nav.navigate(libraryRoute(LibrarySection.Liked)) }
                             LibraryStat("创建", state.library?.playlists?.count { it.owned != false } ?: 0, Icons.AutoMirrored.Filled.QueueMusic, WatchAccent) { nav.navigate(libraryRoute(LibrarySection.Created)) }
                             LibraryStat("收藏", state.library?.playlists?.count { it.owned == false } ?: 0, Icons.Default.LibraryMusic, WatchVip) { nav.navigate(libraryRoute(LibrarySection.Collected)) }
                         }
@@ -919,6 +919,7 @@ class MainActivity : ComponentActivity() {
     count: Int,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
+    loading: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -933,7 +934,7 @@ class MainActivity : ComponentActivity() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, Modifier.size(14.dp), tint = tint)
                 Spacer(Modifier.width(3.dp))
-                Text(count.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(if (loading) "…" else count.toString(), fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
             Text(label, color = WatchTextSecondary, fontSize = 9.sp)
         }
@@ -1117,7 +1118,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             LibrarySection.Liked -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }) }
                 items(state.library?.liked.orEmpty(), key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, liked = true, queue = state.library?.liked.orEmpty(), playlists = created) }
-                if (state.library != null && state.library.liked.isEmpty()) item { Text("还没有喜欢的歌曲", color = Color.Gray) }
+                if (!state.libraryLoading && state.libraryError == null && state.library != null && state.library.liked.isEmpty()) item { Text("还没有喜欢的歌曲", color = Color.Gray) }
             }
             LibrarySection.Created -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }, action = "新建") { title = ""; creating = true } }
@@ -1141,14 +1142,26 @@ private fun decodeServerQrImage(value: String) = runCatching {
                         onClick = { vm.loadDetail("playlist", item, editable = true); nav.navigate("detail") { launchSingleTop = true } },
                     )
                 }
-                if (state.library != null && created.isEmpty()) item { Text("还没有创建歌单", color = Color.Gray) }
+                if (!state.libraryLoading && state.libraryError == null && state.library != null && created.isEmpty()) item { Text("还没有创建歌单", color = Color.Gray) }
             }
             LibrarySection.Collected -> {
                 item { SettingsHeader(pageTitle, { nav.popBackStack() }) }
                 items(collected, key = { "${it.directoryId}:${it.id}" }, contentType = { "collection" }) { item -> CollectionRow(item) { vm.loadDetail("playlist", item); nav.navigate("detail") { launchSingleTop = true } } }
-                if (state.library != null && collected.isEmpty()) item { Text("还没有收藏歌单", color = Color.Gray) }
+                if (!state.libraryLoading && state.libraryError == null && state.library != null && collected.isEmpty()) item { Text("还没有收藏歌单", color = Color.Gray) }
             }
         }
+        if (state.libraryLoading && (section == LibrarySection.Liked && state.library?.liked.isNullOrEmpty() || state.library == null)) item {
+            Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 3.dp)
+                Text("已读取 ${state.libraryLoadedCount} 首…", color = WatchTextSecondary, fontSize = 11.sp)
+            }
+        }
+        state.libraryError?.let { error -> item {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(error, color = WatchTextSecondary, fontSize = 12.sp)
+                TextButton({ vm.loadLibrary(force = true) }) { Text("重试") }
+            }
+        } }
     }
     actionPlaylist?.let { playlist ->
         WatchDialog(
@@ -2027,7 +2040,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     }
 }
 
-@Composable internal fun DetailScreen(detail: CollectionDetail?, editableDirectoryId: String?, loading: Boolean, error: String?, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), pinnedTitle = detail?.title ?: "歌单详情", onPinnedBack = onBack) {
+@Composable internal fun DetailScreen(detail: CollectionDetail?, editableDirectoryId: String?, loading: Boolean, error: String?, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit, loadedCount: Int = 0) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), pinnedTitle = detail?.title ?: "歌单详情", onPinnedBack = onBack) {
     item {
         Row(
             Modifier.fillMaxWidth()
@@ -2045,7 +2058,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             Spacer(Modifier.width(7.dp))
             Column(Modifier.weight(1f)) {
                 Text(detail?.title ?: if (loading) "加载中" else "歌单详情", fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (detail != null) Text("${detail.tracks.size} 首", color = WatchTextSecondary, fontSize = 10.sp)
+                if (detail != null) Text(if (loading && detail.tracks.isEmpty()) "正在读取 $loadedCount 首…" else "${detail.tracks.size} 首", color = WatchTextSecondary, fontSize = 10.sp)
                 Row {
                     detail?.tracks?.firstOrNull()?.let { first ->
                         WatchIconButton(Icons.Default.PlayArrow, "播放全部", Modifier.size(30.dp)) { vm.requestPlay(first, sourceQueue = detail.tracks) }
@@ -2055,7 +2068,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             }
         }
     }
-    if (loading) item { Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp) } }
+    if (loading && detail?.tracks.isNullOrEmpty()) item { Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp) } }
     if (!loading && error != null) item {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
@@ -2076,7 +2089,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
         }
     }
     if (!loading && error == null && detail != null && detail.tracks.isEmpty()) item { Text("这个歌单暂时没有可显示的歌曲", Modifier.fillMaxWidth().padding(16.dp), color = Color.Gray, textAlign = TextAlign.Center) }
-    items(detail?.tracks.orEmpty(), key = { it.id }) { TrackRow(it, vm, playlistId = editableDirectoryId, removeFromPlaylist = editableDirectoryId != null, queue = detail?.tracks.orEmpty(), playlists = playlists) }
+    items(detail?.tracks.orEmpty(), key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, playlistId = editableDirectoryId, removeFromPlaylist = editableDirectoryId != null, queue = detail?.tracks.orEmpty(), playlists = playlists) }
 }
 
 @Composable private fun SettingsModule(title: String, subtitle: String?, icon: androidx.compose.ui.graphics.vector.ImageVector, open: () -> Unit) =

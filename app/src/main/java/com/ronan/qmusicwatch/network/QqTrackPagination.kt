@@ -2,6 +2,9 @@ package com.ronan.qmusicwatch.network
 
 import com.ronan.qmusicwatch.model.Track
 import java.security.MessageDigest
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -53,32 +56,62 @@ internal fun parseQqTrackPage(root: JsonObject): QqTrackPage {
 internal suspend fun collectQqTrackPages(
     pageSize: Int = 100,
     maxPages: Int = 100,
+    parallelism: Int = 1,
+    onProgress: (suspend (List<Track>) -> Unit)? = null,
     fetchPage: suspend (offset: Int, size: Int) -> JsonObject,
     parseTracks: (JsonElement) -> List<Track>,
-): List<Track> {
-    require(pageSize > 0 && maxPages > 0)
+): List<Track> = supervisorScope {
+    require(pageSize > 0 && maxPages > 0 && parallelism in 1..3)
     val tracks = linkedMapOf<String, Track>()
     val seenPages = mutableSetOf<String>()
+    val pending = linkedMapOf<Int, Deferred<JsonObject>>()
     var offset = 0
-    repeat(maxPages) {
-        val page = parseQqTrackPage(fetchPage(offset, pageSize))
-        if (page.items.isEmpty()) {
-            if ((page.total ?: 0) > offset || page.hasMore == true) {
-                throw QqResponseException("QQ 音乐歌曲列表未完整返回，请稍后重试")
+    var count = 0
+    var fixedSize = true
+    var previousTotal: Int? = null
+    try {
+        while (count < maxPages) {
+            val page = parseQqTrackPage(pending.remove(offset)?.await() ?: fetchPage(offset, pageSize))
+            count++
+            if (page.items.isEmpty()) {
+                if ((page.total ?: 0) > offset || page.hasMore == true) {
+                    throw QqResponseException("QQ 音乐歌曲列表未完整返回，请稍后重试")
+                }
+                return@supervisorScope tracks.values.toList()
             }
-            return tracks.values.toList()
-        }
-        val batch = parseTracks(page.items)
-        if (batch.isNotEmpty()) {
-            val signature = MessageDigest.getInstance("SHA-256")
-                .digest(page.items.toString().toByteArray(Charsets.UTF_8))
-                .joinToString("") { "%02x".format(it) }
-            if (!seenPages.add(signature)) {
-                throw QqResponseException("QQ 音乐重复返回同一页歌曲，请稍后重试")
+            val batch = parseTracks(page.items)
+            if (batch.isNotEmpty()) {
+                val digest = MessageDigest.getInstance("SHA-256").digest(page.items.toString().toByteArray(Charsets.UTF_8))
+                val signature = buildString(64) {
+                    val hex = "0123456789abcdef"
+                    digest.forEach { byte -> val value = byte.toInt() and 255; append(hex[value ushr 4]); append(hex[value and 15]) }
+                }
+                if (!seenPages.add(signature)) throw QqResponseException("QQ 音乐重复返回同一页歌曲，请稍后重试")
+            }
+            batch.forEach { tracks.putIfAbsent(it.id, it) }
+            onProgress?.invoke(tracks.values.toList())
+            val next = page.nextOffset(offset, pageSize) ?: return@supervisorScope tracks.values.toList()
+            // Speculation is safe only with an explicit total and stable upstream slot size.
+            // If a server caps/changes pages, discard future offsets and continue serially.
+            if (page.consumedCount != pageSize || page.total == null ||
+                (previousTotal != null && page.total != previousTotal)) {
+                fixedSize = false
+                pending.values.forEach { it.cancel() }; pending.clear()
+            }
+            previousTotal = page.total
+            offset = next
+            if (fixedSize && parallelism > 1) {
+                val limit = minOf(parallelism, maxPages - count)
+                var candidate = offset
+                repeat(limit) {
+                    if (candidate < (page.total ?: 0) && candidate !in pending) {
+                        val start = candidate
+                        pending[start] = async { fetchPage(start, pageSize) }
+                    }
+                    candidate += pageSize
+                }
             }
         }
-        batch.forEach { tracks.putIfAbsent(it.id, it) }
-        offset = page.nextOffset(offset, pageSize) ?: return tracks.values.toList()
-    }
-    throw QqResponseException("歌曲列表超过单次加载上限，请稍后重试")
+        throw QqResponseException("歌曲列表超过单次加载上限，请稍后重试")
+    } finally { pending.values.forEach { it.cancel() } }
 }

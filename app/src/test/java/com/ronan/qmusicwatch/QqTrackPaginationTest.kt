@@ -4,7 +4,8 @@ import com.ronan.qmusicwatch.model.Track
 import com.ronan.qmusicwatch.network.QqResponseException
 import com.ronan.qmusicwatch.network.collectQqTrackPages
 import com.ronan.qmusicwatch.network.parseQqTrackPage
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -112,4 +113,61 @@ class QqTrackPaginationTest {
             }
         }
     }
+    @Test fun parallelPagesStayBoundedAndOrderedWhenLaterPagesFinishFirst() = runBlocking {
+        val active = AtomicInteger(); val peak = AtomicInteger()
+        val result = collectQqTrackPages(parallelism = 2, fetchPage = { offset, size ->
+            val now = active.incrementAndGet(); peak.updateAndGet { maxOf(it, now) }
+            try {
+                delay(if (offset == 100) 60 else 5)
+                page((offset until minOf(offset + size, 437)).map { rawTrack("song-$it") }, total = 437)
+            } finally { active.decrementAndGet() }
+        }, parseTracks = ::parseTracks)
+        assertEquals(2, peak.get())
+        assertEquals((0 until 437).map { "song-$it" }, result.map(Track::id))
+    }
+
+    @Test fun aChangedServerPageCapDiscardsSpeculationWithoutSkippingSongs() = runBlocking {
+        val result = collectQqTrackPages(parallelism = 2, fetchPage = { offset, _ ->
+            val cap = if (offset == 0) 100 else 30
+            page((offset until minOf(offset + cap, 243)).map { rawTrack("song-$it") }, total = 243)
+        }, parseTracks = ::parseTracks)
+        assertEquals((0 until 243).map { "song-$it" }, result.map(Track::id))
+    }
+
+    @Test fun unknownTotalsRemainSerialEvenWhenParallelismIsRequested() = runBlocking {
+        val active = AtomicInteger(); val peak = AtomicInteger()
+        val result = collectQqTrackPages(parallelism = 2, fetchPage = { offset, size ->
+            val now = active.incrementAndGet(); peak.updateAndGet { maxOf(it, now) }
+            try { delay(1); page((offset until minOf(offset + size, 230)).map { rawTrack("song-$it") }) }
+            finally { active.decrementAndGet() }
+        }, parseTracks = ::parseTracks)
+        assertEquals(1, peak.get()); assertEquals(230, result.size)
+    }
+
+    @Test fun cancellingAReadCancelsBothSpeculativeRequests() = runBlocking {
+        val started = CompletableDeferred<Unit>(); val active = AtomicInteger(); val cancelled = AtomicInteger()
+        val read = async {
+            collectQqTrackPages(parallelism = 2, fetchPage = { offset, size ->
+                if (offset == 0) page((0 until size).map { rawTrack("song-$it") }, total = 1000)
+                else {
+                    if (active.incrementAndGet() == 2) started.complete(Unit)
+                    try { awaitCancellation() } finally { active.decrementAndGet(); cancelled.incrementAndGet() }
+                }
+            }, parseTracks = ::parseTracks)
+        }
+        withTimeout(2_000) { started.await() }
+        read.cancelAndJoin()
+        assertEquals(0, active.get()); assertEquals(2, cancelled.get())
+    }
+
+    @Test fun aMissingSpeculativePageFailsRatherThanReturningAnIncompleteList() {
+        assertThrows(QqResponseException::class.java) {
+            runBlocking {
+                collectQqTrackPages(parallelism = 2, fetchPage = { offset, size ->
+                    page(if (offset == 200) emptyList() else (offset until offset + size).map { rawTrack("song-$it") }, total = 300)
+                }, parseTracks = ::parseTracks)
+            }
+        }
+    }
+
 }

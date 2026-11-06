@@ -29,7 +29,6 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
-import androidx.media3.session.CommandButton
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
@@ -313,10 +312,8 @@ class PlaybackService : MediaLibraryService() {
                 }
             })
         }
-        val mediaButtons = listOf(
-            CommandButton.Builder(CommandButton.ICON_PREVIOUS).setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS).setDisplayName("上一首").setSlots(CommandButton.SLOT_BACK).build(),
-            CommandButton.Builder(CommandButton.ICON_NEXT).setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT).setDisplayName("下一首").setSlots(CommandButton.SLOT_FORWARD).build(),
-        )
+        // Keep Media3's standard skip buttons. Explicit slot preferences become
+        // custom actions in legacy sessions and hide ACTION_SKIP_TO_* flags.
         val availablePlayerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
             .buildUpon()
             .add(Player.COMMAND_GET_DEVICE_VOLUME)
@@ -344,7 +341,6 @@ class PlaybackService : MediaLibraryService() {
                 MediaSession.ConnectionResult.AcceptedResultBuilder(mediaSession)
                     .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(previousCommand).add(nextCommand).build())
                     .setAvailablePlayerCommands(availablePlayerCommands)
-                    .setMediaButtonPreferences(mediaButtons)
                     .build()
 
             override fun onCustomCommand(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> = when (customCommand.customAction) {
@@ -406,7 +402,7 @@ class PlaybackService : MediaLibraryService() {
                 }
                 return result
             }
-        }).setMediaButtonPreferences(mediaButtons)
+        })
             .setSessionActivity(PendingIntent.getActivity(this, 0,
                 Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
