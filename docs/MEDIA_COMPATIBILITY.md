@@ -18,6 +18,6 @@
 
 2026-11-07 最终 1.1 包在 OWW251 上通过独立平台 MediaController 实测：暂停为 STATE_PAUSED，恢复为 STATE_PLAYING，位置从 49.479 秒推进到 53.687 秒；标准 skipToNext/skipToPrevious 均切换真实歌曲元数据，最后暂停成功。播放时 actions=7340027、暂停时 actions=7340029，均包含标准前后切歌标志，且没有旧的自定义按钮替代项。完整 268 项自动回归通过，Lint 零错误、62 条既有警告。实机结果仅代表当前连接的 OWW251；原厂固定名单问题仍未解决。
 
-用户随后明确要求按 QQ 音乐包名尝试接入，已增加显式选择的同工程兼容构建并安装，仍保留本项目签名与第三方身份。其适用范围、官方版冲突与尚待完成的实机验收见 [固定名单兼容构建](OPPO_MEDIA_COMPAT.md)。默认独立版的控制测试不能替代兼容版的原厂接入验收。
+用户随后明确要求按 QQ 音乐包名尝试接入，已增加显式选择的同工程兼容构建并安装，仍保留本项目签名与第三方身份。该包重新扫码后，OWW251 原厂界面的真实歌曲、封面和新图标，以及播放、暂停、上一首、下一首均已单独验证通过。其适用范围、官方版冲突与完整记录见 [固定名单兼容构建](OPPO_MEDIA_COMPAT.md)。默认独立版仍受原厂名单限制，X3 未实测。
 
 参考：[Android 后台播放](https://developer.android.com/media/media3/session/background-playback)、[媒体库服务](https://developer.android.com/media/media3/session/serve-content)、[OPPO 原始圆表文档](https://open.oppomobile.com/documentation/page/info?id=12357)。
