@@ -3,7 +3,7 @@
 <p align="center">QQ 音乐安卓手表版第三方应用，适用于圆形表盘。</p>
 <p align="center"><b>圆屏适配 · 逐字歌词 · 双语翻译 · 表冠与触觉反馈</b></p>
 <p align="center">
-  <a href="https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/untagged-753d7a6a32293452e7a0">1.1 私有审阅</a> ·
+  <a href="https://github.com/SIAKNG/QMusic-CircleWatch/releases">1.1 私有审阅</a> ·
   <a href="#应用介绍图">应用介绍图</a> · <a href="#界面预览">界面预览</a> · <a href="#二创主要更新">二创更新</a> ·
   <a href="#第一次使用">使用方法</a> · <a href="#工程组成与实现">工程组成</a> ·
   <a href="CHANGELOG.md">版本记录</a>
@@ -20,7 +20,7 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 | 支持媒体控制版 | OWW251 已实测显示和播放操作 | 不支持 | [QMusic-CircleWatch-1.1-支持媒体控制版.apk](https://github.com/SIAKNG/QMusic-CircleWatch/blob/packages/安装包/1.1/QMusic-CircleWatch-1.1-支持媒体控制版.apk?raw=true) |
 | 普通版（可共存） | 当前 OWW251 名单不识别；保留标准媒体会话 | 支持 | [QMusic-CircleWatch-1.1.apk](https://github.com/SIAKNG/QMusic-CircleWatch/blob/packages/安装包/1.1/QMusic-CircleWatch-1.1.apk?raw=true) |
 
-**当前仓库已设为私有，正在审阅 1.1。** 私有 main、源码 ZIP、两个 APK 和更新说明均同步为本次版本，确认后再公开。安装包见 [1.1 私有草稿](https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/untagged-753d7a6a32293452e7a0)，版本选择及升级方式见 [1.1 说明](docs/RELEASE_1_1.md)。
+**当前仓库已设为私有，正在审阅 1.1。** 私有 main、源码 ZIP、两个 APK 和更新说明均同步为本次版本，确认后再公开。安装包见 [1.1 私有草稿](https://github.com/SIAKNG/QMusic-CircleWatch/releases)，版本选择及升级方式见 [1.1 说明](docs/RELEASE_1_1.md)。
 
 上表下载区入口和完整 ZIP 保留 APK 的原始中文文件名；当前需登录有权限的 GitHub 账号下载。
 
@@ -50,7 +50,7 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 
 <p align="center"><img src="docs/updates/qmusic-circlewatch-1.1.png" width="640" alt="1.1 更新展示：跟手体验、表冠滚动、动效、数据加载、媒体控制与专辑封面取色"></p>
 
-[1.1 安装包与工程草稿](https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/untagged-753d7a6a32293452e7a0) · [安装与更新说明](docs/RELEASE_1_1.md) · [完整版本记录](CHANGELOG.md)
+[1.1 安装包与工程草稿](https://github.com/SIAKNG/QMusic-CircleWatch/releases) · [安装与更新说明](docs/RELEASE_1_1.md) · [完整版本记录](CHANGELOG.md)
 
 ## 功能一览
 
