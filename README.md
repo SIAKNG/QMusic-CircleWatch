@@ -17,10 +17,12 @@ QMusic-CircleWatch 是一款 **QQ 音乐安卓手表版第三方应用**，面�
 
 | 安装版本 | OPPO 原厂媒体控制 | 与官方 QQ 音乐手表版共存 | 安装包 |
 | --- | --- | --- | --- |
-| 支持媒体控制版 | OWW251 已实测显示和播放操作 | 不支持 | `QMusic-CircleWatch-1.1-支持媒体控制版.apk` |
-| 普通版（可共存） | 当前 OWW251 名单不识别；保留标准媒体会话 | 支持 | `QMusic-CircleWatch-1.1.apk` |
+| 支持媒体控制版 | OWW251 已实测显示和播放操作 | 不支持 | [QMusic-CircleWatch-1.1-支持媒体控制版.apk](https://github.com/SIAKNG/QMusic-CircleWatch/blob/packages/安装包/1.1/QMusic-CircleWatch-1.1-支持媒体控制版.apk?raw=true) |
+| 普通版（可共存） | 当前 OWW251 名单不识别；保留标准媒体会话 | 支持 | [QMusic-CircleWatch-1.1.apk](https://github.com/SIAKNG/QMusic-CircleWatch/blob/packages/安装包/1.1/QMusic-CircleWatch-1.1.apk?raw=true) |
 
 **当前仓库已设为私有，正在审阅 1.1。** 私有 main、源码 ZIP、两个 APK 和更新说明均同步为本次版本，确认后再公开。安装包见 [1.1 私有草稿](https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/untagged-753d7a6a32293452e7a0)，版本选择及升级方式见 [1.1 说明](docs/RELEASE_1_1.md)。
+
+上表下载区入口和完整 ZIP 保留 APK 的原始中文文件名；当前需登录有权限的 GitHub 账号下载。
 
 > **安装提示：** 支持媒体控制版使用与手表官方 QQ 音乐相同的应用包名，占用相同的安装位置，因此无法与官方 QQ 音乐共存。用户必须先卸载手表上的官方 QQ 音乐，才能安装此版本；卸载会删除官方应用的本地登录与下载数据。普通版可以与官方 QQ 音乐共存。
 

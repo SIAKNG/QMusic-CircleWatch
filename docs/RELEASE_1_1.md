@@ -17,6 +17,8 @@ QQ 音乐安卓手表版第三方应用，面向圆形表盘；保留原工程�
 | 应用身份 | QMusic-CircleWatch 第三方应用，本项目图标与签名 | QMusic-CircleWatch 第三方应用，本项目图标与签名 |
 | 覆盖更新 | 使用同包名、同签名的兼容版 | 使用同包名、同签名的独立版 |
 
+保留原始文件名下载：[QMusic-CircleWatch-1.1-支持媒体控制版.apk](https://github.com/SIAKNG/QMusic-CircleWatch/blob/packages/安装包/1.1/QMusic-CircleWatch-1.1-支持媒体控制版.apk?raw=true) · [QMusic-CircleWatch-1.1.apk](https://github.com/SIAKNG/QMusic-CircleWatch/blob/packages/安装包/1.1/QMusic-CircleWatch-1.1.apk?raw=true)。完整 ZIP 中也保留相同文件名。
+
 这里的“媒体控制”指手表内 OPPO 原厂媒体控制程序。独立版仍发布标准 Android 媒体会话；不将原厂固定名单限制等同于所有系统控制器或蓝牙控制都不可用。Watch X3 未连接实测，不能保证它与当前设备有相同表现。
 
 两版账户和缓存各自独立，不能通过跨版本安装自动迁移。兼容版与官方 QQ 音乐包名相同、签名不同，不能直接覆盖官方版；卸载官方版会删除其本地数据，安装前请自行确认。两版都不会安装上游原客户端的更新 APK。
