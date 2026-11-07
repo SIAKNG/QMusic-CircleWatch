@@ -32,11 +32,11 @@
 ```powershell
 # 独立共存版：com.qmusicwatch.round
 .\gradlew.bat :app:assembleRelease
-# OPPO 媒体控制兼容版：com.tencent.qqmusicwatch
+# OPPO 支持媒体控制版：com.tencent.qqmusicwatch
 .\gradlew.bat :app:assembleRelease -PoppoMediaCompat=true
 ```
 
-每次输出位于 `app/build/outputs/apk/release/app-release.apk`，构建下一种之前需分别保存。分发名称为 `QMusic-CircleWatch-1.1-Standalone.apk` 和 `QMusic-CircleWatch-1.1-MediaControl.apk`。两版均校验本项目证书，禁用上游原版 APK 更新。
+每次输出位于 `app/build/outputs/apk/release/app-release.apk`，构建下一种之前需分别保存。分发名称为 `QMusic-CircleWatch-1.1.apk` 和 `QMusic-CircleWatch-1.1-支持媒体控制版.apk`。两版均校验本项目证书，禁用上游原版 APK 更新。
 
 兼容版不能与官方 QQ 音乐共存；独立版不进入当前 OWW251 原厂媒体名单。切换包名不迁移账号数据，覆盖更新必须匹配已安装包名和签名。详见 [1.1 安装与更新说明](RELEASE_1_1.md)。
 
