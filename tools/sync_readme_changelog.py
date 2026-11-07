@@ -33,7 +33,9 @@ def render_history(changelog: str) -> str:
                     + '\n\n#### 新增：支持媒体控制面板\n\n' + '- ' + media[0]
                     + '\n\n> **安装提示：** ' + note
                     + '\n\n#### 其他优化与修复\n\n' + '\n'.join('- ' + item for item in other_items))
-        records.append(heading + '\n\n' + body)
+        button = (f'[![下载 {version}](docs/buttons/download-{version}.svg)]'
+                  f'(docs/DOWNLOAD.md#{version.replace(".", "")})')
+        records.append(heading + '\n\n' + body + '\n\n' + button)
     if '1.0' not in [match.group(1) for match in headings]:
         raise ValueError('The 1.0 history must be retained')
     return '\n\n'.join(records) + '\n'
@@ -45,7 +47,19 @@ def main() -> None:
         raise ValueError('README must contain exactly one pair of version-history markers')
     before, rest = readme.split(START, 1)
     _, after = rest.split(END, 1)
-    history = render_history((ROOT / 'CHANGELOG.md').read_text(encoding='utf-8'))
+    changelog = (ROOT / 'CHANGELOG.md').read_text(encoding='utf-8')
+    buttons = ROOT / 'docs/buttons'
+    buttons.mkdir(exist_ok=True)
+    for version in re.findall(r'^## (\d+(?:\.\d+)+)', changelog.split('\n以下为原工程', 1)[0], re.MULTILINE):
+        button = buttons / f'download-{version}.svg'
+        if not button.exists():
+            button.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="172" height="42" viewBox="0 0 172 42">'
+                f'<title>下载 {version}</title><rect width="172" height="42" rx="9" fill="#00c984"/>'
+                '<path d="M24 11v13m-5-5 5 5 5-5M17 29h14" fill="none" stroke="#06261b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                f'<text x="99" y="27" text-anchor="middle" font-family="Microsoft YaHei,Noto Sans CJK SC,sans-serif" font-size="16" font-weight="700" fill="#06261b">下载 {version}</text></svg>\n',
+                encoding='utf-8')
+    history = render_history(changelog)
     path.write_text(before + START + '\n\n' + history + '\n' + END + after, encoding='utf-8')
     print('README includes the complete version history from CHANGELOG.md.')
 
