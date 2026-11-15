@@ -33,6 +33,8 @@ def render_history(changelog: str) -> str:
                     + '\n\n#### 新增：支持媒体控制面板\n\n' + '- ' + media[0]
                     + '\n\n> **安装提示：** ' + note
                     + '\n\n#### 其他优化与修复\n\n' + '\n'.join('- ' + item for item in other_items))
+        else:
+            body = re.sub(r'^### (?=(?:新增|优化|修复)$)', '#### ', body, flags=re.MULTILINE)
         button = (f'[![下载 {version}](docs/buttons/download-{version}.svg)]'
                   f'(docs/DOWNLOAD.md#{version.replace(".", "")})')
         records.append(heading + '\n\n' + body + '\n\n' + button)
