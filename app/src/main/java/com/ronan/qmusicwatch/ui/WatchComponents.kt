@@ -28,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
@@ -403,45 +402,17 @@ fun WatchSelectionDialog(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = .97f)),
         ) {
             val horizontalInset = if (dimensions.isRound) maxWidth * .12f else dimensions.screenPadding
-            val topInset = if (dimensions.isRound) maxHeight * .21f else 42.dp
-            val bottomInset = if (dimensions.isRound) maxHeight * .12f else 8.dp
             WatchLazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = horizontalInset,
-                    end = horizontalInset,
-                    top = topInset,
-                    bottom = bottomInset,
-                ),
+                modifier = Modifier.fillMaxSize().padding(horizontal = horizontalInset),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                content = content,
-            )
-            Text(
-                text = title,
-                modifier = Modifier.align(Alignment.TopCenter)
-                    .padding(
-                        top = if (dimensions.isRound) maxHeight * .055f else 9.dp,
-                        start = 42.dp,
-                        end = 42.dp,
-                    ),
-                color = WatchTextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            WatchIconButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "返回",
-                modifier = Modifier.align(Alignment.TopStart)
-                    .padding(
-                        start = if (dimensions.isRound) maxWidth * .11f else 6.dp,
-                        top = if (dimensions.isRound) maxHeight * .07f else 5.dp,
-                    )
-                    .size(30.dp),
-                containerColor = WatchSurface.copy(alpha = .82f),
-                onClick = onDismissRequest,
-            )
+                pinnedTitle = title,
+                onPinnedBack = onDismissRequest,
+                touchScrollHaptics = true,
+            ) {
+                item { WatchPageHeader(title, onDismissRequest) }
+                content()
+            }
         }
     }
 }

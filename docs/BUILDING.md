@@ -25,18 +25,18 @@
 
 签名私钥、口令及设备账号数据不在仓库或源码压缩包中。重新生成密钥不能覆盖安装已有正式包。维护者的 F 盘工作区可用 `项目管理/build.ps1 -Mode verify` 运行本地中文路径兼容验证和正式包导出；这属于外层工作区工具，并非其他机器的必需目录结构。
 
-## 1.1 双版本构建
+## 应用包名
 
-同一工程可生成两个包名，界面与音乐业务一致：
+从 1.2 起，默认构建支持 OPPO 媒体控制。仅在明确需要与官方 QQ 音乐共存时构建独立版。
 
 ```powershell
-# 独立共存版：com.qmusicwatch.round
-.\gradlew.bat :app:assembleRelease
 # OPPO 支持媒体控制版：com.tencent.qqmusicwatch
-.\gradlew.bat :app:assembleRelease -PoppoMediaCompat=true
+.\gradlew.bat :app:assembleRelease
+# 独立共存版：com.qmusicwatch.round
+.\gradlew.bat :app:assembleRelease -PoppoMediaCompat=false
 ```
 
-每次输出位于 `app/build/outputs/apk/release/app-release.apk`，构建下一种之前需分别保存。分发名称为 `QMusic-CircleWatch-1.1.apk` 和 `QMusic-CircleWatch-1.1-支持媒体控制版.apk`。两版均校验本项目证书，禁用上游原版 APK 更新。
+每次输出位于 `app/build/outputs/apk/release/app-release.apk`。工作区的 `项目管理/build.ps1` 默认导出文件名带「支持媒体控制版」的 APK，独立版通过 `-Standalone` 导出。两版均校验本项目证书，禁用上游原版 APK 更新。
 
 兼容版不能与官方 QQ 音乐共存；独立版不进入当前 OWW251 原厂媒体名单。切换包名不迁移账号数据，覆盖更新必须匹配已安装包名和签名。详见 [1.1 安装与更新说明](RELEASE_1_1.md)。
 

@@ -9,6 +9,7 @@ class MusicCookieTest {
     @Test fun extractsAndValidatesAccount() {
         assertEquals("12345", MusicCookie.accountId("qm_keyst=x; uin=o12345"))
         assertEquals("wx_user", MusicCookie.accountId("wxuin=wx_user; qqmusic_key=x"))
+        assertEquals("778899", MusicCookie.accountId("wxuin=wx_user; uin=o12345; qqmusic_uin=778899; tmeLoginType=1"))
         assertNull(MusicCookie.accountId("uin=../../bad; qqmusic_key=x"))
     }
 

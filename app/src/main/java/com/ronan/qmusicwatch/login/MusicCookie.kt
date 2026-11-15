@@ -7,16 +7,24 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 
 object MusicCookie {
-    fun accountId(cookie: String): String? = cookie.split(';')
-        .mapNotNull { part -> part.trim().split('=', limit = 2).takeIf { it.size == 2 } }
-        .firstOrNull { it[0] in setOf("qqmusic_uin", "uin", "wxuin") }
-        ?.get(1)?.removePrefix("o")?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) }
+    private val accountPattern = Regex("[A-Za-z0-9_-]{1,64}")
 
-    fun provider(cookie: String, fallback: String): String = cookie.split(';')
+    fun accountId(cookie: String): String? {
+        val values = cookie.split(';').mapNotNull { part ->
+            val name = part.substringBefore('=').trim()
+            val value = part.substringAfter('=', "").trim().removePrefix("o")
+            if (value.matches(accountPattern)) name to value else null
+        }.toMap()
+        return values["qqmusic_uin"] ?: values["uin"] ?: values["wxuin"]
+    }
+
+    fun loginProvider(cookie: String): String? = cookie.split(';')
         .mapNotNull { part -> part.trim().split('=', limit = 2).takeIf { it.size == 2 } }
         .firstOrNull { it[0] == "tmeLoginType" }
         ?.get(1)?.let { when (it) { "1" -> "wechat"; "2" -> "qq"; else -> null } }
-        ?: fallback.takeIf { it == "qq" || it == "wechat" } ?: "qq"
+
+    fun provider(cookie: String, fallback: String): String =
+        loginProvider(cookie) ?: fallback.takeIf { it == "qq" || it == "wechat" } ?: "qq"
 
     fun fromQrMessage(message: String): String? = runCatching {
         val cookies = Json.parseToJsonElement(message).jsonObject["cookies"]?.jsonObject ?: return null

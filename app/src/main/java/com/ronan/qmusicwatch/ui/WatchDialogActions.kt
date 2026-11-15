@@ -1,5 +1,6 @@
 package com.ronan.qmusicwatch.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -9,10 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,14 +32,15 @@ private fun WatchDialogAction(onClick: () -> Unit, enabled: Boolean, cancel: Boo
         return
     }
     Column(
-        Modifier.widthIn(max = 82.dp).semantics(mergeDescendants = true) {
-            role = Role.Button
-            onClick { if (enabled) onClick(); enabled }
-        }, horizontalAlignment = Alignment.CenterHorizontally,
+        Modifier.widthIn(min = 44.dp, max = 82.dp).clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        IconButton(onClick, enabled = enabled, modifier = Modifier.size(44.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (cancel) WatchAccent else WatchSurfaceRaised)) {
-            Icon(if (cancel) Icons.Default.Close else Icons.Default.Check, null, Modifier.size(24.dp), tint = Color.White)
+        Surface(modifier = Modifier.size(44.dp), shape = androidx.compose.foundation.shape.CircleShape,
+            color = if (cancel) WatchAccent else WatchSurfaceRaised) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(if (cancel) Icons.Default.Close else Icons.Default.Check, null, Modifier.size(24.dp),
+                    tint = Color.White.copy(alpha = if (enabled) 1f else .38f))
+            }
         }
         ProvideTextStyle(TextStyle(fontSize = 11.sp, color = WatchTextSecondary)) {
             Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically, content = content)

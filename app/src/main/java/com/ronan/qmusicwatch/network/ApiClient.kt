@@ -55,7 +55,8 @@ internal class QqResponseException(
 ) : IllegalStateException(message, cause)
 
 internal fun isIdempotentQqReadMethod(method: String): Boolean =
-    method.startsWith("Get") ||
+    method == "uniform_get_Dissinfo" ||
+        method.startsWith("Get") ||
         method.startsWith("CgiGet") ||
         method.startsWith("UrlGet") ||
         method.startsWith("DoSearch") ||
@@ -252,8 +253,13 @@ internal fun normalizeLibraryData(value: LibraryData): LibraryData =
     )
 
 private fun playlistIdentityKey(value: MusicCollection): String? =
-    value.directoryId.trim().takeIf(String::isNotBlank)?.let { "directory:$it" }
-        ?: value.id.trim().takeIf(String::isNotBlank)?.let { "id:$it" }
+    if (value.owned == false) {
+        value.id.toLongOrNull()?.takeIf { it > 0 }?.let { "favorite:$it" }
+            ?: value.directoryId.trim().takeIf(String::isNotBlank)?.let { "favorite-directory:$it" }
+    } else {
+        value.directoryId.trim().takeIf(String::isNotBlank)?.let { "directory:$it" }
+            ?: value.id.trim().takeIf(String::isNotBlank)?.let { "id:$it" }
+    }
 
 private fun deduplicatePlaylists(values: List<MusicCollection>): List<MusicCollection> {
     val seen = mutableSetOf<String>()
@@ -300,12 +306,16 @@ internal fun parseAccountPlaylists(root: JsonElement): List<MusicCollection> {
         val dirId = item.text("dirId").ifBlank { item.text("dirid") }
         val id = item.text("tid").ifBlank { item.text("id") }.ifBlank { dirId }
         val title = item.text("dirName").ifBlank { item.text("title") }.ifBlank { item.text("name") }
-        val owned = item.text("isOwn").ifBlank { item.text("is_self") }.toIntOrNull()?.let { it > 0 } ?: ownedHint
-        if (dirId.isBlank() || id.isBlank() || title.isBlank()) null else MusicCollection(
+        val owned = when (item.text("isOwn").ifBlank { item.text("is_self") }.lowercase()) {
+            "true", "1" -> true
+            "false", "0" -> false
+            else -> ownedHint
+        }
+        if (id.isBlank() || title.isBlank() || (dirId.isBlank() && owned != false)) null else MusicCollection(
             id, title, normalizeHttpsUrl(item.text("picUrl").ifBlank { item.text("picurl") }),
-            item.number("songNum").takeIf { it > 0 } ?: item.number("songnum"), dirId, owned,
+            item.number("songNum").takeIf { it > 0 } ?: item.number("songnum"), dirId.ifBlank { id }, owned,
         )
-    }.distinctBy { it.directoryId }.filterNot(::isSystemLikedPlaylist).toList()
+    }.filterNot(::isSystemLikedPlaylist).toList().let(::deduplicatePlaylists)
 }
 
 internal fun parseFavoritePlaylists(root: JsonElement): List<MusicCollection> {
@@ -327,7 +337,46 @@ internal fun parseFavoritePlaylists(root: JsonElement): List<MusicCollection> {
             item.number("songNum", "songnum", "song_count", "total"),
             directoryId = item.text("dirId", "dirid").ifBlank { id }, owned = false,
         )
-    }.distinctBy(MusicCollection::directoryId).filterNot(::isSystemLikedPlaylist).toList()
+    }.filterNot(::isSystemLikedPlaylist).toList().let(::deduplicatePlaylists)
+}
+
+private val favoritePlaylistListKeys = listOf("v_list", "v_playlist", "fav_list", "playlist", "list")
+
+internal suspend fun collectFavoritePlaylistPages(
+    fetch: suspend (offset: Int, size: Int) -> JsonObject,
+): List<MusicCollection> {
+    fun containers(root: JsonObject): Sequence<JsonObject> = sequence {
+        yield(root)
+        root.values.filterIsInstance<JsonObject>().forEach { yieldAll(containers(it)) }
+    }
+    val pageSize = 100
+    val favorites = linkedMapOf<String, MusicCollection>()
+    val seen = mutableSetOf<JsonArray>()
+    var offset = 0
+    repeat(100) {
+        val data = fetch(offset, pageSize)
+        val container = containers(data).firstOrNull { obj -> favoritePlaylistListKeys.any { obj[it] is JsonArray } }
+            ?: throw QqResponseException("QQ 音乐响应缺少收藏歌单列表，请重试")
+        val records = favoritePlaylistListKeys.firstNotNullOf { container[it] as? JsonArray }
+        fun number(vararg keys: String) = keys.firstNotNullOfOrNull { key ->
+            ((container[key] ?: data[key]) as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+        }
+        val total = number("total", "totalNum", "totalnum", "total_num", "totalCount")
+        val more = (container["hasMore"] ?: container["hasmore"] ?: data["hasMore"] ?: data["hasmore"]) as? JsonPrimitive
+        val next = offset + records.size
+        val morePages = when {
+            total != null -> next < total
+            more != null -> more.contentOrNull in setOf("true", "1")
+            else -> records.size >= pageSize
+        }
+        if (records.isEmpty() && morePages || records.isNotEmpty() && !seen.add(records)) {
+            throw QqResponseException("QQ 音乐未完整返回收藏歌单，请重试")
+        }
+        parseFavoritePlaylists(records).forEach { favorites.putIfAbsent(it.id, it) }
+        if (!morePages) return favorites.values.toList()
+        offset = next
+    }
+    throw QqResponseException("收藏歌单分页超过读取上限，请重试")
 }
 
 private data class MembershipEvidence(
@@ -980,88 +1029,95 @@ class ApiClient(
         }
     }
 
-    suspend fun library(onPlaylists: (suspend (owned: List<MusicCollection>?, collected: List<MusicCollection>?) -> Unit)? = null, onLikedProgress: (suspend (Int) -> Unit)? = null): LibraryData = withContext(Dispatchers.IO) {
+    suspend fun library(
+        onPlaylists: (suspend (owned: List<MusicCollection>?, collected: List<MusicCollection>?) -> Unit)? = null,
+        onLikedProgress: (suspend (Int) -> Unit)? = null,
+        onLikedLoaded: (suspend (List<Track>) -> Unit)? = null,
+    ): LibraryData = withContext(Dispatchers.IO) {
         requireLogin()
-        coroutineScope {
+        supervisorScope {
             val playlistsTask = async {
-                api("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin", obj("uin" to accountId()))
+                api("music.musicasset.PlaylistBaseRead", "GetPlaylistByUin", obj("uin" to accountId(), "bWithoutStatus" to false))
                     .also { onPlaylists?.invoke(parseAccountPlaylists(it), null) }
             }
             val collectedTask = async {
-                runCatching { favoritePlaylists() }.onFailure { error ->
-                    val detail = (error as? QqBusinessException)?.let { "business_code=${it.businessCode}" }
-                        ?: "${error.javaClass.simpleName}"
-                    AppLog.write("LIBRARY", "favorite playlists unavailable $detail")
-                }.getOrDefault(emptyList()).also { onPlaylists?.invoke(null, it) }
+                favoritePlaylists().also { onPlaylists?.invoke(null, it) }
             }
-            val likedTask = async { likedTracks(onLikedProgress) }
-            val playlists = playlistsTask.await()
-            val collectedPlaylists = collectedTask.await()
+            val likedTask = async {
+                val directory = try { playlistsTask.await() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { JsonObject(emptyMap()) }
+                likedTracks(directory, onLikedProgress).map(::stableTrackArtwork).also { onLikedLoaded?.invoke(it) }
+            }
             val likedTracks = likedTask.await()
-            val accountPlaylists = parseAccountPlaylists(playlists)
-            normalizeLibraryData(
-                LibraryData(likedTracks, mergeLibraryPlaylists(accountPlaylists, collectedPlaylists)),
-            )
+            LibraryData(likedTracks, mergeLibraryPlaylists(parseAccountPlaylists(playlistsTask.await()), collectedTask.await()))
         }
     }
 
-    private suspend fun likedTracks(onProgress: (suspend (Int) -> Unit)? = null): List<Track> = collectQqTrackPages(
-        parallelism = 2, onProgress = onProgress?.let { publish -> { tracks -> publish(tracks.size) } },
-        fetchPage = { offset, size ->
-            api(
-                "music.srfDissInfo.DissInfo", "CgiGetDiss",
-                obj(
-                    "disstid" to 0, "dirid" to 201, "tag" to true,
-                    "song_begin" to offset, "song_num" to size,
-                    "userinfo" to true, "orderlist" to true,
-                    "enc_host_uin" to cookieValue("euin").orEmpty(),
-                ),
-            )
-        },
-        parseTracks = ::findTracks,
-    )
+    private suspend fun likedTracks(directory: JsonObject, onProgress: (suspend (Int) -> Unit)?): List<Track> {
+        val liked = walkObjects(directory).firstOrNull { it.long("dirId", it.long("dirid")) == 201L }
+        val directoryId = liked?.long("tid", liked.long("id"))?.takeIf { it > 0 }
+        val accountFavorites = if (directoryId == null || MusicCookie.loginProvider(cookie().orEmpty()) == "wechat") {
+            try {
+                val profile = legacyProfile(self = true)
+                (profile["data"] as? JsonObject)?.get("mymusic").let { it as? JsonArray }
+                    ?.filterIsInstance<JsonObject>()?.firstOrNull { it.int("type") == 1 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                AppLog.write("LIBRARY", "liked identity lookup ${error.javaClass.simpleName}")
+                null
+            }
+        } else null
+        val playlistId = accountFavorites?.long("id")?.takeIf { it > 0 } ?: directoryId
+        val accountTotal = accountFavorites?.int("num0")?.takeIf { it > 0 }
+            ?: liked?.int("songNum")?.takeIf { it > 0 }
+        AppLog.write("LIBRARY", "liked identity=${playlistId != null} expected_total=$accountTotal")
+        return collectQqTrackPages(
+            parallelism = 2,
+            onProgress = onProgress?.let { publish -> { tracks -> publish(tracks.size) } },
+            fetchPage = { offset, size ->
+                val data = if (playlistId != null) {
+                    api("music.srfDissInfo.aiDissInfo", "uniform_get_Dissinfo",
+                        obj("disstid" to playlistId, "ctx" to 1, "song_begin" to offset, "song_num" to size))
+                } else {
+                    api("music.srfDissInfo.DissInfo", "CgiGetDiss", obj(
+                        "disstid" to 0, "dirid" to 201, "tag" to true,
+                        "song_begin" to offset, "song_num" to size, "userinfo" to true, "orderlist" to true,
+                        "enc_host_uin" to cookieValue("euin").orEmpty(),
+                    ))
+                }
+                val page = parseQqTrackPage(data)
+                AppLog.write("LIBRARY", "liked_page offset=$offset records=${page.items.size} total=${page.total} more=${page.hasMore}")
+                if (accountTotal != null && accountTotal > (page.total ?: 0)) {
+                    JsonObject(data + ("total_song_num" to JsonPrimitive(accountTotal)))
+                } else data
+            },
+            parseTracks = ::findTracks,
+        )
+    }
 
     private suspend fun favoritePlaylists(): List<MusicCollection> {
         val encryptedUin = cookieValue("euin").orEmpty()
-        if (encryptedUin.isBlank()) {
-            AppLog.write("LIBRARY", "favorite playlists encrypted_id=missing compatibility=unpaged")
-            return api(
-                "music.musicasset.PlaylistFavRead", "GetPlaylistFavInfo",
-                obj("uin" to accountId()),
-            ).let(::parseFavoritePlaylists)
-        }
-
-        val playlists = mutableListOf<MusicCollection>()
-        val directories = mutableSetOf<String>()
-        for (page in 0 until 20) {
-            val data = try {
-                api(
-                    "music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo",
-                    obj("uin" to encryptedUin, "offset" to page * 100, "size" to 100),
-                )
-            } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                if (page == 0 && error is QqBusinessException && error.businessCode == 80050) {
-                    AppLog.write("LIBRARY", "favorite playlists compatibility=unpaged")
-                    return api(
-                        "music.musicasset.PlaylistFavRead", "GetPlaylistFavInfo",
-                        obj("uin" to accountId()),
-                    ).let(::parseFavoritePlaylists)
+        if (encryptedUin.isNotBlank()) {
+            var firstPage = true
+            try {
+                return collectFavoritePlaylistPages { offset, size ->
+                    firstPage = offset == 0
+                    api(
+                        "music.musicasset.PlaylistFavRead", "CgiGetPlaylistFavInfo",
+                        obj("uin" to encryptedUin, "offset" to offset, "size" to size),
+                    )
                 }
-                if (playlists.isNotEmpty()) {
-                    val detail = (error as? QqBusinessException)?.let { "business_code=${it.businessCode}" }
-                        ?: error.javaClass.simpleName
-                    AppLog.write("LIBRARY", "favorite playlists partial $detail")
-                    return playlists
-                }
-                throw error
+            } catch (error: QqBusinessException) {
+                if (!firstPage || error.businessCode != 80050) throw error
             }
-            val batch = parseFavoritePlaylists(data)
-            val previousSize = playlists.size
-            playlists += batch.filter { directories.add(it.directoryId) }
-            if (batch.size < 100 || playlists.size == previousSize) break
         }
-        return playlists
+        AppLog.write("LIBRARY", "favorite playlists compatibility=unpaged")
+        return api(
+            "music.musicasset.PlaylistFavRead", "GetPlaylistFavInfo",
+            obj("uin" to accountId()),
+        ).let(::parseFavoritePlaylists)
     }
 
     suspend fun profile(onIdentity: (suspend (UserProfile) -> Unit)? = null): UserProfile = withContext(Dispatchers.IO) {
@@ -1345,7 +1401,9 @@ class ApiClient(
             result.string("msg").ifBlank { result.string("message") }
                 .ifBlank { "QQ 音乐接口拒绝请求 ($code)" },
         )
-        return result["data"]?.jsonObject ?: JsonObject(emptyMap())
+        val data = result["data"]?.jsonObject ?: JsonObject(emptyMap())
+        val total = result["total_song_num"]
+        return if (total != null && "total_song_num" !in data) JsonObject(data + ("total_song_num" to total)) else data
     }
 
     private suspend fun musicuRequest(
@@ -1417,7 +1475,7 @@ class ApiClient(
         return legacyGet(url, operation)
     }
 
-    private suspend fun legacyProfile(): JsonObject {
+    private suspend fun legacyProfile(self: Boolean = false): JsonObject {
         val id = accountId()
         require(id.matches(Regex("\\d{1,24}"))) { "账号标识无效" }
         val gtk = hash33(cookieValue("qqmusic_key", "qm_keyst", "p_skey", "skey").orEmpty())
@@ -1426,10 +1484,13 @@ class ApiClient(
             .addQueryParameter("format", "json")
             .addQueryParameter("loginUin", id)
             .addQueryParameter("hostUin", "0")
-            .addQueryParameter("userid", id)
+            .addQueryParameter("userid", if (self) "0" else id)
             .addQueryParameter("g_tk", gtk.toString())
             .addQueryParameter("cid", "205360838")
             .addQueryParameter("reqfrom", "1")
+            .addQueryParameter("ct", "24")
+            .addQueryParameter("reqtype", "0")
+            .addQueryParameter("needNewCode", "0")
             .build()
         return legacyGet(url, "profile", cookie())
     }
@@ -1680,6 +1741,7 @@ class ApiClient(
     private fun webComm() = buildJsonObject {
         val gtk = hash33(cookieValue("qqmusic_key", "qm_keyst", "p_skey", "skey").orEmpty())
         put("ct", 24); put("cv", 4_747_474); put("platform", "yqq.json"); put("uin", accountId().ifBlank { "0" })
+        MusicCookie.loginProvider(cookie().orEmpty())?.let { put("tmeLoginType", if (it == "wechat") 1 else 2) }
         put("g_tk", gtk); put("g_tk_new_20200303", gtk); put("format", "json"); put("inCharset", "utf-8"); put("outCharset", "utf-8"); put("notice", 0); put("need_new_code", 1)
     }
 
@@ -1775,7 +1837,7 @@ class ApiClient(
         value.isNotBlank() && value.length <= 8192 && value.none { it.code < 0x21 || it in setOf(';', ',', '\u007f') }
     private fun cookieValue(vararg names: String): String? =
         firstCookieValue(cookieValues(cookie().orEmpty()), *names).takeIf(String::isNotBlank)
-    private fun accountId() = cookieValue("qqmusic_uin", "uin", "wxuin").orEmpty().trimStart('o')
+    private fun accountId() = MusicCookie.accountId(cookie().orEmpty()).orEmpty()
     private fun requireLogin() { if (cookie().isNullOrBlank()) error("请先扫码登录") }
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()

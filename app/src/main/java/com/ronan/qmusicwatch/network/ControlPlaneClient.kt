@@ -116,7 +116,7 @@ class ControlPlaneClient(
     }
 
     suspend fun createQrLogin(provider: String): ControlQrSession {
-        require(provider in setOf("qq", "wechat")) { "不支持的二维码登录方式" }
+        require(provider in qrLoginProviders) { "不支持的二维码登录方式" }
         return validateQrSession(
             post(endpoint("api/qmusic-watch/auth/$provider/qr"), "{}".encodeToByteArray()),
             provider,

@@ -116,20 +116,20 @@ class PlaylistParserTest {
         assertEquals(0L, collected.directoryId)
     }
 
-    @Test fun dedicatedFavoriteWinsWhenSourcesUseDifferentIdsForTheSameDirectory() {
+    @Test fun favoritesWithSharedDirectoryIdsKeepTheirOwnPlaylistIds() {
         val account = listOf(
             MusicCollection("created", "自建", directoryId = "202", owned = true),
-            MusicCollection("account-alias", "旧收藏信息", directoryId = "302", owned = false),
-            MusicCollection("shared-id", "目录 401", directoryId = "401", owned = false),
+            MusicCollection("9988", "旧收藏信息", directoryId = "302", owned = false),
+            MusicCollection("8877", "同目录的另一收藏", directoryId = "302", owned = false),
         )
         val favorites = listOf(
-            MusicCollection("favorite-alias", "收藏歌单", directoryId = "302", owned = false),
-            MusicCollection("shared-id", "目录 402", directoryId = "402", owned = false),
+            MusicCollection("9988", "收藏歌单", directoryId = "402", owned = false),
+            MusicCollection("7766", "另一收藏", directoryId = "202", owned = false),
         )
 
         val merged = mergeLibraryPlaylists(account, favorites)
 
-        assertEquals(listOf("202", "401", "302", "402"), merged.map(MusicCollection::directoryId))
-        assertEquals(listOf("自建", "目录 401", "收藏歌单", "目录 402"), merged.map(MusicCollection::title))
+        assertEquals(listOf("created", "8877", "9988", "7766"), merged.map(MusicCollection::id))
+        assertEquals(listOf("自建", "同目录的另一收藏", "收藏歌单", "另一收藏"), merged.map(MusicCollection::title))
     }
 }

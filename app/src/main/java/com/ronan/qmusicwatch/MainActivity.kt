@@ -17,11 +17,13 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.core.view.ViewConfigurationCompat
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -29,6 +31,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -57,6 +60,7 @@ import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -113,6 +117,7 @@ import com.ronan.qmusicwatch.performance.FramePerformanceMonitor
 import com.ronan.qmusicwatch.playback.hardwareVolumeDirection
 import com.ronan.qmusicwatch.playback.rotaryScrollDelta
 import com.ronan.qmusicwatch.playback.rotaryVolumeDirection
+import com.ronan.qmusicwatch.playback.CrownVolumeSteps
 import com.ronan.qmusicwatch.ui.*
 import com.ronan.qmusicwatch.update.UpdateInstaller
 import kotlinx.coroutines.Dispatchers
@@ -395,7 +400,7 @@ class MainActivity : ComponentActivity() {
 
     @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+        if (event.action == KeyEvent.ACTION_DOWN) {
             hardwareVolumeDirection(event.keyCode)?.let { direction ->
                 if (dispatchHardwareVolume(direction)) return true
             }
@@ -486,6 +491,8 @@ class MainActivity : ComponentActivity() {
     val swipeThresholdPx = with(density) { 54.dp.toPx() }
     val swipeLeftEdgePx = with(density) { 48.dp.toPx() }
     val currentRoute = backStack?.destination?.route
+    var playerVolumePanel by remember { mutableStateOf(false) }
+    LaunchedEffect(currentRoute) { if (currentRoute != "player") playerVolumePanel = false }
     val swipeBackEnabled = currentRoute != null
     val backActivity = androidx.activity.compose.LocalActivity.current as? ComponentActivity
     val navigateBack = rememberWatchBackAction(nav) {
@@ -592,7 +599,7 @@ class MainActivity : ComponentActivity() {
         },
         bottomBar = {
             if (!appDimensions.isRound && backStack?.destination?.route !in setOf("player", "login")) {
-                MiniPlayer(chrome.currentTrack, chrome.lyrics, vm) { nav.navigate("player") }
+                MiniPlayer(chrome.currentTrack, vm) { nav.navigate("player") }
             }
         },
     ) { padding ->
@@ -608,7 +615,9 @@ class MainActivity : ComponentActivity() {
                     enabled = swipeBackEnabled,
                     thresholdPx = swipeThresholdPx,
                     leftEdgePx = swipeLeftEdgePx,
-                    onBack = navigateBack,
+                    onBack = if (currentRoute == "player" && playerVolumePanel) {
+                        { playerVolumePanel = false }
+                    } else navigateBack,
                 ),
             enterTransition = {
                 WatchNavigationMotion.enter()
@@ -632,7 +641,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(section) { vm.loadLibrary() }
                 LibraryScreen(nav, pageState, vm, section)
             }
-            watchDestination("recent") { val pageState by vm.state.collectAsStateWithLifecycle(); LaunchedEffect(Unit) { vm.loadRecent() }; TrackListScreen("最近播放", pageState.recent, writablePlaylists(pageState.library?.playlists.orEmpty()), vm) { nav.popBackStack() } }
+            watchDestination("recent") { val pageState by vm.state.collectAsStateWithLifecycle(); LaunchedEffect(Unit) { vm.loadRecent() }; TrackListScreen("最近播放", pageState.recent, writablePlaylists(pageState.library?.playlists.orEmpty()), vm, pageState.currentTrack?.id) { nav.popBackStack() } }
             watchDestination("downloads") { DownloadScreen(downloads, vm) { nav.popBackStack() } }
             watchDestination("player") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
@@ -659,6 +668,8 @@ class MainActivity : ComponentActivity() {
                     playlists = writablePlaylists(pageState.library?.playlists.orEmpty()),
                     liked = pageState.library?.liked?.any { it.id == pageState.currentTrack?.id } == true,
                     openQueue = { nav.navigate("queue") },
+                    showVolumePanel = playerVolumePanel,
+                    onVolumePanelChange = { playerVolumePanel = it },
                     onBack = { nav.popBackStack() },
                 )
             }
@@ -672,7 +683,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { if (vm.signedIn) vm.loadLibrary() }
                 QueueScreen(queue, queueIndex, queueReversed, pageState, vm) { nav.popBackStack() }
             }
-            watchDestination("detail") { val pageState by vm.state.collectAsStateWithLifecycle(); DetailScreen(pageState.detail, pageState.detailDirectoryId, pageState.detailLoading, pageState.detailError, writablePlaylists(pageState.library?.playlists.orEmpty()), vm, onBack = { nav.popBackStack() }, loadedCount = pageState.detailLoadedCount) }
+            watchDestination("detail") { val pageState by vm.state.collectAsStateWithLifecycle(); DetailScreen(pageState.detail, pageState.detailDirectoryId, pageState.detailLoading, pageState.detailError, writablePlaylists(pageState.library?.playlists.orEmpty()), vm, onBack = { nav.popBackStack() }, loadedCount = pageState.detailLoadedCount, currentTrackId = pageState.currentTrack?.id) }
             watchDestination("settings") { SettingsCenter(nav) { nav.popBackStack() } }
             watchDestination("settings/display") { DisplaySettingsScreen(vm, uiSize, lyricSize, lyricOriginal, lyricTranslation, lyricOffset, lyricAnimation, lyricAlignment, pureBlack, lowPowerPlayer) { nav.popBackStack() } }
             watchDestination("settings/playback") {
@@ -683,7 +694,6 @@ class MainActivity : ComponentActivity() {
             watchDestination("settings/network") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
                 NetworkSettingsScreen(vm, dailyCount, pageState, onAnnouncements = { nav.navigate("settings/announcements") }, onRelogin = {
-                    vm.logout()
                     nav.navigate("login") { popUpTo("home") }
                 }) { nav.popBackStack() }
             }
@@ -696,7 +706,7 @@ class MainActivity : ComponentActivity() {
                 OppoRoundClock(Modifier.align(Alignment.TopCenter))
             }
             if (appDimensions.isRound && currentRoute !in setOf("player", "login")) {
-                MiniPlayer(chrome.currentTrack, chrome.lyrics, vm, Modifier.align(Alignment.BottomCenter)) {
+                MiniPlayer(chrome.currentTrack, vm, Modifier.align(Alignment.BottomCenter)) {
                     nav.navigate("player")
                 }
             }
@@ -943,24 +953,42 @@ class MainActivity : ComponentActivity() {
 
 @Composable internal fun LoginScreen(state: AppUiState, vm: AppViewModel, onSuccess: () -> Unit) {
     val dimensions = LocalWatchDimensions.current
+    var provider by rememberSaveable { mutableStateOf("qq") }
+    val refresh = { vm.startQrLogin(provider) }
+    val switchProvider: (String) -> Unit = { selected ->
+        if (provider != selected) {
+            provider = selected
+            vm.startQrLogin(selected)
+        }
+    }
+    val confirming = state.qrStatus == "已确认，正在完成登录…"
     LaunchedEffect(state.qrStatus) { if (state.qrStatus == "登录成功") onSuccess() }
-    LaunchedEffect(Unit) { vm.startQrLogin("qq") }
+    LaunchedEffect(Unit) { refresh() }
     DisposableEffect(Unit) { onDispose(vm::cancelQrLogin) }
     if (dimensions.isRound) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val qrSide = minOf(maxWidth, maxHeight) * .54f
-            Box(Modifier.align(Alignment.TopCenter).padding(top = maxHeight * .13f).width(maxWidth * .66f)) {
-                Text("扫码登录", Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 17.sp)
+            val qrSide = minOf(maxWidth, maxHeight) * .51f
+            Column(
+                Modifier.fillMaxSize().padding(top = maxHeight * .10f, bottom = maxHeight * .09f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("扫码登录", textAlign = TextAlign.Center, fontSize = 15.sp)
+                Spacer(Modifier.height(6.dp))
+                if (vm.featureEnabled("qrLogin")) {
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        ServerQrLogin(
+                            state.qrImageBase64, state.qrStatus,
+                            Modifier.size(minOf(qrSide, maxHeight))
+                                .clickable(enabled = !confirming, onClickLabel = "刷新二维码", onClick = refresh),
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    QrProviderSwitch(provider, !confirming, switchProvider)
+                }
             }
             if (!vm.featureEnabled("qrLogin")) {
                 Text(vm.featureMessage("qrLogin").ifBlank { "扫码登录暂时维护" },
                     Modifier.align(Alignment.Center).width(maxWidth * .7f), textAlign = TextAlign.Center, fontSize = 14.sp)
-            } else {
-                ServerQrLogin(state.qrImageBase64,
-                    Modifier.align(Alignment.Center).size(qrSide).clickable { vm.startQrLogin("qq") })
-                Text(state.qrStatus.ifBlank { "QQ / QQ音乐扫码" },
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = maxHeight * .13f).width(maxWidth * .60f),
-                    textAlign = TextAlign.Center, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
         return
@@ -977,7 +1005,7 @@ class MainActivity : ComponentActivity() {
                 Text(vm.featureMessage("qrLogin").ifBlank { "扫码登录暂时维护" }, color = WatchTextSecondary, fontSize = dimensions.bodySp.sp)
             }
         } else {
-            val qrSide = minOf(maxWidth, (maxHeight - 48.dp).coerceAtLeast(1.dp), 320.dp)
+            val qrSide = minOf(maxWidth, (maxHeight - 90.dp).coerceAtLeast(1.dp), 320.dp)
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(
                     Modifier.fillMaxWidth()
@@ -989,26 +1017,34 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.width(3.dp))
                     Text("扫码登录", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
-                    WatchIconButton(Icons.Default.Refresh, "刷新二维码", Modifier.size(32.dp)) { vm.startQrLogin("qq") }
+                    WatchIconButton(Icons.Default.Refresh, "刷新二维码", Modifier.size(32.dp)) { if (!confirming) refresh() }
                 }
                 ServerQrLogin(
                     imageBase64 = state.qrImageBase64,
+                    status = state.qrStatus,
                     modifier = Modifier.size(qrSide),
                 )
-                Text(
-                    if (state.qrStatus.isBlank()) "使用 QQ 或 QQ音乐扫描" else state.qrStatus,
-                    color = if (state.qrStatus.startsWith("登录失败")) MaterialTheme.colorScheme.error else WatchTextSecondary,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Spacer(Modifier.height(10.dp))
+                QrProviderSwitch(provider, !confirming, switchProvider)
+            }
+        }
+    }
+}
+
+@Composable private fun QrProviderSwitch(provider: String, enabled: Boolean, onSelect: (String) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for ((id, label) in listOf("qq" to "QQ / QQ音乐", "wechat" to "微信")) {
+            Surface(selected = id == provider, onClick = { onSelect(id) }, enabled = enabled,
+                color = if (id == provider) WatchAccent else WatchSurface, shape = CircleShape) {
+                Text(label, Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                    color = if (id == provider) Color.Black else WatchTextPrimary, fontSize = 11.sp, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-private fun ServerQrLogin(imageBase64: String, modifier: Modifier = Modifier) {
+private fun ServerQrLogin(imageBase64: String, status: String, modifier: Modifier = Modifier) {
     // Decode off the main thread: a server-supplied image up to 1024x1024 is a
     // multi-megabyte Base64+BitmapFactory job that visibly stalls composition.
     var image by remember(imageBase64) { mutableStateOf<ImageBitmap?>(null) }
@@ -1025,6 +1061,9 @@ private fun ServerQrLogin(imageBase64: String, modifier: Modifier = Modifier) {
                     contentScale = ContentScale.FillBounds,
                     filterQuality = FilterQuality.None,
                 )
+            } else if (imageBase64.isEmpty() && status.isNotBlank()) {
+                Text(status, Modifier.padding(8.dp), color = WatchTextSecondary,
+                    textAlign = TextAlign.Center, fontSize = 12.sp)
             } else {
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp, color = WatchAccent)
             }
@@ -1108,16 +1147,22 @@ private fun decodeServerQrImage(value: String) = runCatching {
         LibrarySection.Created -> "我创建的歌单"
         LibrarySection.Collected -> "收藏歌单"
     }
+    val likedTracks = state.library?.liked.orEmpty()
+    val listState = rememberLazyListState()
+    val locate = if (section == LibrarySection.Liked) trackLocationAction(listState, likedTracks, state.currentTrack?.id, 1) else null
     WatchLazyColumn(
         Modifier.fillMaxSize().padding(horizontal = dimensions.screenPadding),
+        state = listState,
         contentPadding = PaddingValues(bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
-        pinnedTitle = pageTitle, onPinnedBack = { nav.popBackStack() },
+        pinnedTitle = pageTitle, onPinnedBack = { nav.popBackStack() }, pinnedAction = locate,
     ) {
         when (section) {
             LibrarySection.Liked -> {
-                item { SettingsHeader(pageTitle, { nav.popBackStack() }) }
-                items(state.library?.liked.orEmpty(), key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, liked = true, queue = state.library?.liked.orEmpty(), playlists = created) }
+                item { WatchPageHeader(pageTitle, { nav.popBackStack() }, action = locate) }
+                items(likedTracks, key = { it.id }, contentType = { "track" }) {
+                    TrackRow(it, vm, liked = true, queue = likedTracks, playlists = created, current = it.id == state.currentTrack?.id)
+                }
                 if (!state.libraryLoading && state.libraryError == null && state.library != null && state.library.liked.isEmpty()) item { Text("还没有喜欢的歌曲", color = Color.Gray) }
             }
             LibrarySection.Created -> {
@@ -1181,8 +1226,30 @@ private fun decodeServerQrImage(value: String) = runCatching {
     deleting?.let { playlist -> WatchDialog(onDismissRequest = { deleting = null }, title = { Text("删除歌单？") }, text = { Text("将从 QQ 音乐永久删除“${playlist.title}”，歌曲本身不会删除。") }, confirmButton = { WatchConfirmButton({ vm.deletePlaylist(playlist.directoryId); deleting = null }) { Text("确认删除", color = MaterialTheme.colorScheme.error) } }, dismissButton = { WatchCancelButton({ deleting = null }) { Text("取消") } }) }
 }
 
-@Composable internal fun TrackListScreen(title: String, tracks: List<Track>, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), pinnedTitle = title, onPinnedBack = onBack) {
-    item { SettingsHeader(title, onBack) }; items(tracks, key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, queue = tracks, playlists = playlists) }
+@Composable private fun trackLocationAction(
+    listState: LazyListState, tracks: List<Track>, currentTrackId: String?, precedingItems: Int,
+): (@Composable () -> Unit)? {
+    val index = remember(tracks, currentTrackId) { tracks.indexOfFirst { it.id == currentTrackId } }
+    if (index < 0) return null
+    val scope = rememberCoroutineScope()
+    val offset = with(LocalDensity.current) { LocalWatchDimensions.current.trackRowHeight.toPx().toInt() }
+    return {
+        WatchIconButton(Icons.Default.MyLocation, "定位正在播放的歌曲", buttonSize = 30.dp) {
+            scope.launch { listState.scrollToItem(index + precedingItems, -offset) }
+        }
+    }
+}
+
+@Composable internal fun TrackListScreen(title: String, tracks: List<Track>, playlists: List<MusicCollection>, vm: AppViewModel, currentTrackId: String? = null, onBack: () -> Unit) {
+    val listState = rememberLazyListState()
+    val locate = trackLocationAction(listState, tracks, currentTrackId, 1)
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding),
+        state = listState, pinnedTitle = title, onPinnedBack = onBack, pinnedAction = locate) {
+        item { WatchPageHeader(title, onBack, action = locate) }
+        items(tracks, key = { it.id }, contentType = { "track" }) {
+            TrackRow(it, vm, queue = tracks, playlists = playlists, current = it.id == currentTrackId)
+        }
+    }
 }
 
 @Composable internal fun DownloadScreen(downloads: List<DownloadEntity>, vm: AppViewModel, onBack: () -> Unit) {
@@ -1242,6 +1309,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     profile: UserProfile?, profileLoaded: Boolean, playlists: List<MusicCollection>, liked: Boolean,
     openQueue: () -> Unit, onBack: () -> Unit, initialPage: Int = 0,
     lyricsLoading: Boolean = false, lyricsError: String? = null,
+    showVolumePanel: Boolean = false, onVolumePanelChange: (Boolean) -> Unit = {},
 ) {
     val dimensions = LocalWatchDimensions.current
     if (track == null) return BoxWithConstraints(
@@ -1259,9 +1327,9 @@ private fun decodeServerQrImage(value: String) = runCatching {
         )
         Text("尚未播放", fontSize = dimensions.bodySp.sp)
     }
-    var position by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(0L) }
-    var playing by remember { mutableStateOf(false) }
+    var position by remember(track.id) { mutableLongStateOf(0L) }
+    var duration by remember(track.id) { mutableLongStateOf(0L) }
+    var playing by remember(track.id) { mutableStateOf(false) }
     val hasTimeline = remember(lyrics) { lyrics.any { it.timeMs >= 0 } }
     val active by remember(lyrics, lyricOffset) { derivedStateOf { activeLyricIndex(lyrics, position + lyricOffset) } }
     val hasTranslation = remember(lyrics) { lyrics.any { !it.translation.isNullOrBlank() } }
@@ -1303,9 +1371,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
     LaunchedEffect(track.id, pager.settledPage) { vm.ensureLyrics() }
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
-    val deviceVolume by vm.deviceVolume.collectAsStateWithLifecycle()
-    var volumeFeedbackTick by remember(track.id) { mutableIntStateOf(0) }
-    var showVolumeFeedback by remember(track.id) { mutableStateOf(false) }
+    BackHandler(enabled = showVolumePanel) { onVolumePanelChange(false) }
     var locked by rememberSaveable { mutableStateOf(false) }
     var lyricChromeVisible by remember(track.id) { mutableStateOf(true) }
     var lyricChromeInteraction by remember(track.id) { mutableIntStateOf(0) }
@@ -1320,31 +1386,23 @@ private fun decodeServerQrImage(value: String) = runCatching {
         manualLyricSelection = true
         manualLyricInteraction++
     }
-    val volumeCrown = remember(track.id) { com.ronan.qmusicwatch.playback.CrownScrollFilter() }
-    val lastCrownVolumeAt = remember { longArrayOf(Long.MIN_VALUE) }
-    fun handleHardwareVolume(direction: Int): Boolean {
-        if (locked || pager.currentPage != 0 || !rotaryVolumeEnabled) return false
-        if (vm.adjustVolume(direction)) {
-            volumeFeedbackTick++
+    val volumeSteps = remember(showVolumePanel, rotaryVolumeEnabled) { CrownVolumeSteps() }
+    fun applyVolumeStep(direction: Int, timeMs: Long): Boolean {
+        if (showVolumePanel && !locked && rotaryVolumeEnabled &&
+            volumeSteps.accept(direction, timeMs) && vm.adjustVolume(direction)) {
             crownHaptics.tick()
         }
         return true
     }
     val hardwareVolumeAction = rememberUpdatedState(newValue = { direction: Int ->
-        handleHardwareVolume(direction)
+        // Some crowns report volume keys instead of a rotary scroll event.
+        applyVolumeStep(-direction, android.os.SystemClock.uptimeMillis())
     })
     fun handleRotary(pixels: Float, timeMs: Long): Boolean {
         if (locked) return true
-        if (pager.currentPage == 1) return lyricCrown.offer(pixels, timeMs)
-        if (!rotaryVolumeEnabled) return true
-        if (volumeCrown.offer(pixels, timeMs)) {
-            val filtered = volumeCrown.takeFrame()
-            // A crown burst must not change several volume steps at once.
-            if (abs(filtered) >= 2f && (lastCrownVolumeAt[0] == Long.MIN_VALUE || timeMs - lastCrownVolumeAt[0] >= 110L)) {
-                rotaryVolumeDirection(filtered)?.let { handleHardwareVolume(it) }
-                lastCrownVolumeAt[0] = timeMs
-            }
-            volumeCrown.discardPending()
+        if (!showVolumePanel) return if (pager.currentPage == 1) lyricCrown.offer(pixels, timeMs) else true
+        if (abs(pixels) >= 5f) {
+            rotaryVolumeDirection(pixels)?.let { applyVolumeStep(it, timeMs) }
         }
         return true
     }
@@ -1367,24 +1425,18 @@ private fun decodeServerQrImage(value: String) = runCatching {
         if (locked) view.keepScreenOn = true
         onDispose { view.keepScreenOn = previous }
     }
-    LaunchedEffect(track.id, pager.currentPage, locked) {
+    LaunchedEffect(track.id, pager.currentPage, locked, showVolumePanel) {
         // A tap on a player control can move focus away from the rotary target.
         // Reclaim it whenever the player/lyrics page changes or lock mode ends.
         delay(80)
         focusRequester.requestFocus()
-    }
-    LaunchedEffect(track.id, volumeFeedbackTick) {
-        if (volumeFeedbackTick == 0) return@LaunchedEffect
-        showVolumeFeedback = true
-        delay(1_150)
-        showVolumeFeedback = false
     }
     LaunchedEffect(track.id, lowPowerPlayer) {
         var elapsed = 0L
         val interval = if (lowPowerPlayer) 1_000L else 200L
         while (true) {
             if (pager.isScrollInProgress) { delay(80); continue }
-            val (playingNow, positionNow, durationNow) = vm.playbackSnapshot()
+            val (playingNow, positionNow, durationNow) = vm.playbackSnapshot(track.id)
             position = positionNow; duration = durationNow; playing = playingNow
             elapsed += interval
             if (elapsed >= 10_000) { elapsed = 0; vm.savePlaybackState() }
@@ -1465,7 +1517,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             centerLyrics -> 8.dp
             else -> 12.dp
         }
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), userScrollEnabled = !locked) { page ->
+        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), userScrollEnabled = !locked && !showVolumePanel) { page ->
             if (page == 1) {
                 BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
                         LazyColumn(
@@ -1586,10 +1638,10 @@ private fun decodeServerQrImage(value: String) = runCatching {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
                         ) {
-                            Text(track.title, Modifier.fillMaxWidth().padding(horizontal = 36.dp),
+                            Text(track.title, Modifier.fillMaxWidth().padding(horizontal = 36.dp).basicMarquee(iterations = Int.MAX_VALUE),
                                 textAlign = TextAlign.Center, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(track.artists.joinToString(" / "), color = WatchTextSecondary,
+                            Text(track.artists.joinToString(" / "), Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE), color = WatchTextSecondary,
                                 textAlign = TextAlign.Center, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 WatchIconButton(Icons.Default.SkipPrevious, "上一首", buttonSize = 40.dp, onClick = vm::skipPrevious)
@@ -1618,7 +1670,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                                             selectedLike = target.takeIf { success }
                                         }
                                     }
-                                }, onQueue = openQueue, onMore = { showOptionsDialog = true },
+                                }, onQueue = openQueue, onVolume = { onVolumePanelChange(true) }, onMore = { showOptionsDialog = true },
                             )
                         }
                     } else {
@@ -1644,7 +1696,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE),
                                 textAlign = TextAlign.Center,
                             )
                             Text(
@@ -1653,7 +1705,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                                 fontSize = if (compactPlayer) 10.sp else 11.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE),
                                 textAlign = TextAlign.Center,
                             )
                             val previewIndex = active.takeIf { it >= 0 }
@@ -1722,69 +1774,10 @@ private fun decodeServerQrImage(value: String) = runCatching {
                                 }
                             },
                             onQueue = openQueue,
+                            onVolume = { onVolumePanelChange(true) },
                             onMore = { showOptionsDialog = true },
                         )
                     }
-                    }
-                }
-            }
-        }
-        val volumePercent = deviceVolume?.percent
-        val volumeFraction = deviceVolume?.let { state ->
-            if (state.max > 0) state.current.toFloat() / state.max.toFloat() else 0f
-        }?.coerceIn(0f, 1f) ?: 0f
-        val animatedVolumeFraction by animateFloatAsState(
-            targetValue = volumeFraction,
-            animationSpec = tween(180, easing = FastOutSlowInEasing),
-            label = "volumeFeedbackProgress",
-        )
-        AnimatedVisibility(
-            visible = showVolumeFeedback && rotaryVolumeEnabled && pager.currentPage == 0 && !locked,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = verticalControlInset + 34.dp),
-            enter = fadeIn(tween(130)),
-            exit = fadeOut(tween(220)),
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = WatchSurfaceRaised.copy(alpha = .96f),
-                border = BorderStroke(1.dp, playerAccent.copy(alpha = .22f)),
-                tonalElevation = 0.dp,
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    Icon(
-                        imageVector = when {
-                            deviceVolume?.muted == true || volumePercent == 0 -> Icons.Default.VolumeOff
-                            volumePercent != null && volumePercent < 50 -> Icons.Default.VolumeDown
-                            else -> Icons.Default.VolumeUp
-                        },
-                        contentDescription = "音量",
-                        modifier = Modifier.size(16.dp),
-                        tint = playerAccent,
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        AnimatedContent(
-                            targetState = volumePercent,
-                            transitionSpec = { fadeIn(tween(100)) togetherWith fadeOut(tween(80)) },
-                            label = "volumeFeedbackValue",
-                        ) { percent ->
-                            Text(
-                                text = percent?.let { "$it%" } ?: "—",
-                                color = WatchTextPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        }
-                        LinearProgressIndicator(
-                            progress = { animatedVolumeFraction },
-                            modifier = Modifier.width(54.dp).height(3.dp),
-                            color = playerAccent,
-                            trackColor = WatchDivider,
-                        )
                     }
                 }
             }
@@ -1839,6 +1832,11 @@ private fun decodeServerQrImage(value: String) = runCatching {
                 containerColor = Color.Black.copy(alpha = .46f),
             ) { locked = false }
         }
+        if (showVolumePanel) {
+            val deviceVolume by vm.deviceVolume.collectAsStateWithLifecycle()
+            LaunchedEffect(Unit) { vm.refreshDeviceVolume() }
+            WatchVolumePanel(deviceVolume, vm::setMediaVolume)
+        }
     }
     if (showPlaylistDialog) PlayerPlaylistDialog(track, playlists, vm) { showPlaylistDialog = false }
     if (showQualityDialog) QualityDialog(track, quality, activeQuality, profile, vm) { showQualityDialog = false }
@@ -1868,11 +1866,12 @@ private fun decodeServerQrImage(value: String) = runCatching {
     liked: Boolean,
     onLike: () -> Unit,
     onQueue: () -> Unit,
+    onVolume: () -> Unit,
     onMore: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     Surface(
-        modifier = Modifier.width(146.dp).height(40.dp),
+        modifier = Modifier.width(170.dp).height(40.dp),
         shape = CircleShape,
         color = Color.White.copy(alpha = .08f),
         contentColor = Color.White,
@@ -1903,6 +1902,13 @@ private fun decodeServerQrImage(value: String) = runCatching {
                     tint = if (liked) WatchLike else Color.White.copy(alpha = .9f),
                 )
             }
+            PlayerActionDivider()
+            PlayerQuickAction(
+                Icons.AutoMirrored.Filled.VolumeUp,
+                "音量",
+                Modifier.weight(1f),
+                onVolume,
+            )
             PlayerActionDivider()
             PlayerQuickAction(
                 Icons.Default.MoreVert,
@@ -2040,7 +2046,13 @@ private fun decodeServerQrImage(value: String) = runCatching {
     }
 }
 
-@Composable internal fun DetailScreen(detail: CollectionDetail?, editableDirectoryId: String?, loading: Boolean, error: String?, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit, loadedCount: Int = 0) = WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), pinnedTitle = detail?.title ?: "歌单详情", onPinnedBack = onBack) {
+@Composable internal fun DetailScreen(detail: CollectionDetail?, editableDirectoryId: String?, loading: Boolean, error: String?, playlists: List<MusicCollection>, vm: AppViewModel, onBack: () -> Unit, loadedCount: Int = 0, currentTrackId: String? = null) {
+    val tracks = detail?.tracks.orEmpty()
+    val listState = rememberLazyListState()
+    val locate = trackLocationAction(listState, tracks, currentTrackId, if (!loading && error != null) 2 else 1)
+    WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding),
+        state = listState, contentPadding = PaddingValues(bottom = 8.dp),
+        pinnedTitle = detail?.title ?: "歌单详情", onPinnedBack = onBack, pinnedAction = locate) {
     item {
         Row(
             Modifier.fillMaxWidth()
@@ -2066,6 +2078,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                     if (detail != null) WatchIconButton(Icons.Default.Download, "全部缓存", Modifier.size(30.dp)) { vm.cacheAll(detail.tracks, detail.title) }
                 }
             }
+            locate?.invoke()
         }
     }
     if (loading && detail?.tracks.isNullOrEmpty()) item { Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp) } }
@@ -2089,7 +2102,11 @@ private fun decodeServerQrImage(value: String) = runCatching {
         }
     }
     if (!loading && error == null && detail != null && detail.tracks.isEmpty()) item { Text("这个歌单暂时没有可显示的歌曲", Modifier.fillMaxWidth().padding(16.dp), color = Color.Gray, textAlign = TextAlign.Center) }
-    items(detail?.tracks.orEmpty(), key = { it.id }, contentType = { "track" }) { TrackRow(it, vm, playlistId = editableDirectoryId, removeFromPlaylist = editableDirectoryId != null, queue = detail?.tracks.orEmpty(), playlists = playlists) }
+    items(tracks, key = { it.id }, contentType = { "track" }) {
+        TrackRow(it, vm, playlistId = editableDirectoryId, removeFromPlaylist = editableDirectoryId != null,
+            queue = tracks, playlists = playlists, current = it.id == currentTrackId)
+    }
+    }
 }
 
 @Composable private fun SettingsModule(title: String, subtitle: String?, icon: androidx.compose.ui.graphics.vector.ImageVector, open: () -> Unit) =
@@ -2508,7 +2525,7 @@ private fun formatFileSize(bytes: Long): String = when {
     }
 }
 
-@Composable private fun TrackRow(track: Track, vm: AppViewModel, liked: Boolean = false, playlistId: String? = null, removeFromPlaylist: Boolean = false, queue: List<Track> = listOf(track), playlists: List<MusicCollection> = emptyList()) {
+@Composable private fun TrackRow(track: Track, vm: AppViewModel, liked: Boolean = false, playlistId: String? = null, removeFromPlaylist: Boolean = false, queue: List<Track> = listOf(track), playlists: List<MusicCollection> = emptyList(), current: Boolean = false) {
     val dimensions = LocalWatchDimensions.current
     val artworkRequest = rememberArtworkImageRequest(track.artworkUrl, 96)
     var menu by remember { mutableStateOf(false) }
@@ -2532,11 +2549,16 @@ private fun formatFileSize(bytes: Long): String = when {
             Spacer(Modifier.width(7.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(track.title, Modifier.weight(1f, fill = false), fontSize = dimensions.bodySp.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(track.title, Modifier.weight(1f, fill = false)
+                        .then(if (current) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier),
+                        color = if (current) WatchAccent else Color.Unspecified,
+                        fontSize = dimensions.bodySp.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (track.requiresVip) { Spacer(Modifier.width(4.dp)); Text("VIP", color = WatchVip, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
                     if (effectiveLiked) { Spacer(Modifier.width(4.dp)); Icon(Icons.Default.Favorite, null, Modifier.size(12.dp), tint = WatchLike) }
                 }
-                Text(track.artists.joinToString(" / "), color = WatchTextSecondary, fontSize = dimensions.secondarySp.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(track.artists.joinToString(" / "),
+                    modifier = if (current) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier,
+                    color = WatchTextSecondary, fontSize = dimensions.secondarySp.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             WatchIconButton(Icons.Default.MoreVert, "更多") { menu = true }
         }
@@ -2606,6 +2628,26 @@ private fun formatFileSize(bytes: Long): String = when {
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     }
     val currentTrackId = state.currentTrack?.id ?: queue.getOrNull(currentIndex)?.id
+    val currentQueueIndex = remember(workingEntries, currentTrackId) { workingEntries.indexOfFirst { it.track.id == currentTrackId } }
+    var locateTrack by remember { mutableStateOf(false) }
+    val locationOffset = with(LocalDensity.current) { dimensions.trackRowHeight.toPx().toInt() }
+    LaunchedEffect(locateTrack, currentQueueIndex, query) {
+        if (locateTrack && query.isEmpty()) {
+            locateTrack = false
+            if (currentQueueIndex >= 0) listState.scrollToItem(currentQueueIndex + 2, -locationOffset)
+        }
+    }
+    val queueActions: @Composable () -> Unit = {
+        Row {
+            if (currentQueueIndex >= 0) {
+                WatchIconButton(Icons.Default.MyLocation, "定位正在播放的歌曲", buttonSize = 28.dp) {
+                    query = ""
+                    locateTrack = true
+                }
+            }
+            WatchIconButton(Icons.Default.MoreVert, "播放列表操作", buttonSize = 28.dp) { queueMenu = true }
+        }
+    }
     val shown = remember(workingEntries, query) {
         workingEntries.withIndex().filter { indexed ->
             query.isBlank() ||
@@ -2622,12 +2664,10 @@ private fun formatFileSize(bytes: Long): String = when {
         contentPadding = PaddingValues(bottom = if (dimensions.isRound) 80.dp else 4.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp),
         pinnedTitle = pageTitle, onPinnedBack = onBack,
-        pinnedAction = { WatchIconButton(Icons.Default.MoreVert, "播放列表操作", buttonSize = 30.dp) { queueMenu = true } },
+        pinnedAction = queueActions,
     ) {
         item(key = "queue-header", contentType = "header") {
-            WatchPageHeader(pageTitle, onBack, action = {
-                WatchIconButton(Icons.Default.MoreVert, "播放列表操作", buttonSize = 32.dp) { queueMenu = true }
-            })
+            WatchPageHeader(pageTitle, onBack, action = queueActions)
         }
         item(key = "queue-search", contentType = "search") {
             WatchSearchField(query, { query = it }, "筛选播放列表", Modifier.fillMaxWidth(),
@@ -2717,6 +2757,7 @@ private fun formatFileSize(bytes: Long): String = when {
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     track.title,
+                                    modifier = if (track.id == currentTrackId) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier,
                                     color = if (track.id == currentTrackId) WatchAccent else WatchTextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -2724,6 +2765,7 @@ private fun formatFileSize(bytes: Long): String = when {
                                 )
                                 Text(
                                     track.artists.joinToString(" / "),
+                                    modifier = if (track.id == currentTrackId) Modifier.basicMarquee(iterations = Int.MAX_VALUE) else Modifier,
                                     color = WatchTextSecondary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -2851,7 +2893,7 @@ private fun formatFileSize(bytes: Long): String = when {
 }
 @Composable private fun SectionTitle(text: String, action: String? = null, onAction: () -> Unit = {}) = WatchSectionHeader(text, action = action, onAction = onAction)
 @Composable private fun MiniPlayer(
-    track: Track?, lyrics: List<LyricLine>, vm: AppViewModel,
+    track: Track?, vm: AppViewModel,
     modifier: Modifier = Modifier, open: () -> Unit,
 ) {
     if (track == null) return
@@ -2866,23 +2908,16 @@ private fun formatFileSize(bytes: Long): String = when {
     var playing by remember(track.id) { mutableStateOf(false) }
     LaunchedEffect(track.id) {
         while (isActive) {
-            val (playingNow, positionNow, durationNow) = vm.playbackSnapshot()
+            val (playingNow, positionNow, durationNow) = vm.playbackSnapshot(track.id)
             position = positionNow
             duration = durationNow
             playing = playingNow
             delay(350)
         }
     }
-    val previewIndex by remember(lyrics) { derivedStateOf {
-        activeLyricIndex(lyrics, position).takeIf { it >= 0 }
-            ?: lyrics.indexOfFirst { it.timeMs >= 0 }.takeIf { it >= 0 }
-            ?: lyrics.indexOfFirst { it.text.isNotBlank() }
-    } }
     val progressProvider = remember(track.id) { { playbackProgress(position, duration) } }
-    val preview = lyrics.getOrNull(previewIndex)?.text?.takeIf { it.isNotBlank() }
-        ?: if (playing) "正在播放" else "已暂停"
     WatchMiniPlayer(
-        title = track.title, subtitle = preview, artwork = artworkRequest,
+        title = track.title, subtitle = track.artists.joinToString(" / "), artwork = artworkRequest,
         playing = playing, progress = 0f, progressProvider = progressProvider,
         controller = controller, modifier = modifier, accent = accent,
         onPlayPause = { if (playing) vm.pausePlayback() else vm.resumePlayback() },

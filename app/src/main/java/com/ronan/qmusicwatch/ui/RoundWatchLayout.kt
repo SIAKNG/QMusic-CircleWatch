@@ -1,6 +1,10 @@
 package com.ronan.qmusicwatch.ui
 
 import android.view.LayoutInflater
+import android.view.InputDevice
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import android.view.Window
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -26,6 +30,13 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.ViewConfigurationCompat
+import com.ronan.qmusicwatch.playback.rotaryScrollDelta
+import com.ronan.qmusicwatch.playback.CrownHapticPulse
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.layout
@@ -160,6 +171,7 @@ fun WatchLazyColumn(
     pinnedTitle: String? = null,
     onPinnedBack: (() -> Unit)? = null,
     pinnedAction: (@Composable () -> Unit)? = null,
+    touchScrollHaptics: Boolean = false,
     content: LazyListScope.() -> Unit,
 ) {
     val dimensions = LocalWatchDimensions.current
@@ -172,9 +184,10 @@ fun WatchLazyColumn(
     val activity = LocalContext.current as? MainActivity
     val nativeCrownHandler = remember(crown) { { pixels: Float, timeMs: Long -> crown.offer(pixels, timeMs) } }
     val view = LocalView.current
+    val dialogWindow = (view.parent as? DialogWindowProvider)?.window
     val crownViewport = remember { CrownViewport() }
-    DisposableEffect(activity, nativeCrownHandler, round) {
-        if (round) activity?.registerListCrownHandler(nativeCrownHandler) {
+    DisposableEffect(activity, dialogWindow, nativeCrownHandler, round) {
+        if (round && dialogWindow == null) activity?.registerListCrownHandler(nativeCrownHandler) {
             val bounds = crownViewport.bounds
             view.hasWindowFocus() && bounds != null && bounds.contains(
                 androidx.compose.ui.geometry.Offset(view.width / 2f, view.height / 2f),
@@ -182,7 +195,47 @@ fun WatchLazyColumn(
         }
         onDispose { activity?.removeListCrownHandler(nativeCrownHandler) }
     }
+    DisposableEffect(dialogWindow, nativeCrownHandler, round) {
+        val previous = dialogWindow?.callback
+        if (!round || dialogWindow == null || previous == null) return@DisposableEffect onDispose {}
+        val factor = ViewConfigurationCompat.getScaledVerticalScrollFactor(ViewConfiguration.get(view.context), view.context)
+        val callback = object : Window.Callback by previous {
+            override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+                // OPPO also delivers the crown as a mouse-class wheel in dialogs.
+                val crownEvent = event.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER) ||
+                    event.device?.name?.contains("crown", ignoreCase = true) == true
+                if (crownEvent && event.actionMasked == MotionEvent.ACTION_SCROLL) {
+                    val delta = rotaryScrollDelta(
+                        event.getAxisValue(MotionEvent.AXIS_VSCROLL),
+                        event.getAxisValue(MotionEvent.AXIS_HSCROLL),
+                    ).takeIf { it != 0f } ?: event.getAxisValue(MotionEvent.AXIS_SCROLL)
+                    if (delta != 0f && nativeCrownHandler(-delta * factor, event.eventTime)) return true
+                }
+                return previous.dispatchGenericMotionEvent(event)
+            }
+        }
+        dialogWindow.callback = callback
+        onDispose { if (dialogWindow.callback === callback) dialogWindow.callback = previous }
+    }
     val density = LocalDensity.current
+    val touchHapticsModifier = if (round && touchScrollHaptics) {
+        val haptics = rememberCrownHaptics()
+        val connection = remember(haptics, density.density) {
+            val pulse = CrownHapticPulse(12f * density.density)
+            object : NestedScrollConnection {
+                override fun onPostScroll(
+                    consumed: androidx.compose.ui.geometry.Offset,
+                    available: androidx.compose.ui.geometry.Offset,
+                    source: NestedScrollSource,
+                ): androidx.compose.ui.geometry.Offset {
+                    if (source == NestedScrollSource.UserInput &&
+                        pulse.moved(consumed.y, android.os.SystemClock.uptimeMillis())) haptics.tick()
+                    return androidx.compose.ui.geometry.Offset.Zero
+                }
+            }
+        }
+        Modifier.nestedScroll(connection)
+    } else Modifier
     val diameter = with(density) { minOf(config.screenWidthDp, config.screenHeightDp).dp.toPx() }
     var containerTop by remember { mutableFloatStateOf(0f) }
     val miniPlayer = LocalMiniPlayerController.current
@@ -206,7 +259,7 @@ fun WatchLazyColumn(
     }
     Box(modifier) {
     LazyColumn(
-        modifier = if (round) Modifier.fillMaxSize().onGloballyPositioned {
+        modifier = if (round) Modifier.fillMaxSize().then(touchHapticsModifier).onGloballyPositioned {
             crownViewport.bounds = it.boundsInWindow()
             val screenHeight = view.height.toFloat().takeIf { h -> h > 0f } ?: diameter
             containerTop = it.positionInWindow().y - (screenHeight - diameter) / 2f

@@ -88,6 +88,13 @@ class QqTrackPaginationTest {
         assertNull(parseQqTrackPage(data).nextOffset(400, 100))
     }
 
+    @Test fun playlistMetadataTotalKeepsPaginationGoingWhenTheCurrentPageClaimsItIsFinal() {
+        val root = Json.parseToJsonElement(
+            """{"dirinfo":{"songnum":437},"data":{"songlist":[{}],"songlist_size":100,"hasmore":0}}""",
+        ).jsonObject
+        assertEquals(100, parseQqTrackPage(root).nextOffset(0, 100))
+    }
+
     @Test fun supportsLibrariesLargerThanTheOldTwentyPageLimit() = runBlocking {
         val tracks = collectQqTrackPages(fetchPage = { offset, size ->
             page((offset until minOf(offset + size, 2101)).map { rawTrack("song-$it") }, total = 2101)

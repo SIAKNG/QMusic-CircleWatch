@@ -11,9 +11,8 @@ plugins {
 }
 
 val expectedReleaseCertificateSha256 = "35c97202a545d2886448892d005a1754857b0951a1dff7849856d9d31a4e8dcd"
-// Explicit opt-in for the manufacturer's fixed package-name media filter.
-// This retains our own signer, branding and disabled upstream APK updates.
-val oppoMediaCompat = providers.gradleProperty("oppoMediaCompat").orNull == "true"
+// Use OPPO's media allowlisted package by default while retaining our own signature.
+val oppoMediaCompat = providers.gradleProperty("oppoMediaCompat").map(String::toBooleanStrict).getOrElse(true)
 val releaseSigningProperties = Properties()
 val releaseSigningPropertiesFile = rootProject.file("release-signing.properties")
 if (releaseSigningPropertiesFile.isFile) {
@@ -52,6 +51,12 @@ if (releaseSigningConfigured) {
     }
 }
 
+androidComponents {
+    onVariants(selector().withBuildType("showcase")) {
+        it.applicationId.set("com.qmusicwatch.round.showcase")
+    }
+}
+
 android {
     namespace = "com.ronan.qmusicwatch"
     compileSdk = 36
@@ -60,8 +65,8 @@ android {
         applicationId = if (oppoMediaCompat) "com.tencent.qqmusicwatch" else "com.qmusicwatch.round"
         minSdk = 24
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["usesCleartext"] = "false"
         buildConfigField("boolean", "QMUSIC_UPDATES_ENABLED", "false")
@@ -84,7 +89,6 @@ android {
         }
         create("showcase") {
             initWith(getByName("debug"))
-            applicationIdSuffix = ".showcase"
             versionNameSuffix = "-showcase"
             matchingFallbacks += listOf("debug")
         }

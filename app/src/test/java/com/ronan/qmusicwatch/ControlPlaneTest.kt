@@ -81,6 +81,17 @@ class ControlPlaneTest {
         assertEquals("normal", nextStartupAnnouncement(items, setOf("seen"), setOf("pinned"))?.id)
     }
 
+    @Test fun groupPromotionIsExcludedFromTheFeedAndStartup() {
+        val items = listOf(
+            ControlAnnouncement("group-title", title = "交流群", pinned = true),
+            ControlAnnouncement("group-body", content = "QQ 群号 123456"),
+            ControlAnnouncement("maintenance", title = "播放服务维护"),
+        )
+        val visible = visibleAnnouncements(items, 2, 10_000)
+        assertEquals(listOf("maintenance"), visible.map { it.id })
+        assertEquals("maintenance", nextStartupAnnouncement(visible, emptySet(), emptySet())?.id)
+    }
+
     @Test fun recurringAnnouncementMayAppearAgainOnANewAppSession() {
         val item = ControlAnnouncement("recurring", onceOnly = false)
         assertEquals(item, nextStartupAnnouncement(listOf(item), setOf("recurring"), emptySet()))

@@ -69,7 +69,6 @@ data class AppChromeUiState(
     val message: String? = null,
     val playEvent: Long = 0,
     val currentTrack: Track? = null,
-    val lyrics: List<com.ronan.qmusicwatch.lyrics.LyricLine> = emptyList(),
     val pendingSpeakerTrack: Track? = null,
     val announcements: List<ControlAnnouncement> = emptyList(),
     val updateState: UpdateUiState = UpdateUiState.Idle,
@@ -150,7 +149,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             message = it.message,
             playEvent = it.playEvent,
             currentTrack = it.currentTrack,
-            lyrics = it.lyrics,
             pendingSpeakerTrack = it.pendingSpeakerTrack,
             announcements = it.announcements,
             updateState = it.updateState,
@@ -197,13 +195,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val queueReversed = _queueReversed.asStateFlow()
     val sleepRemaining = graph.playback.sleepRemaining
     private var pendingQueue: List<Track>? = null
-    private var restoredPosition = 0L
+    private var restoredPlayback: PlaybackSnapshot? = null
     private var lastStreamUrl = ""
     private var lastStreamExpiresAt = 0L
     private var lastStreamQuality = QUALITY_STANDARD
     private var awaitingServiceRecoveryMediaId: String? = null
     private var recoveryNoticeJob: Job? = null
     private var playJob: Job? = null
+    private var pendingSkipTrackId: String? = null
     private var qualitySwitchJob: Job? = null
     private var searchJob: Job? = null
     private var libraryJob: Job? = null
@@ -290,10 +289,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val snapshot = withContext(Dispatchers.Default) {
                 runCatching { json.decodeFromString<PlaybackSnapshot>(rawSnapshot) }.getOrNull()
             }
-            snapshot?.takeIf { it.belongsToAccount(owner) && generation == sessionGeneration }?.let { snapshot ->
+            snapshot?.takeIf {
+                it.belongsToAccount(owner) && generation == sessionGeneration &&
+                    playJob?.isActive != true && _state.value.currentTrack == null
+            }?.let { snapshot ->
                 _queue.value = snapshot.queue.distinctBy(Track::id)
                 _queueReversed.value = snapshot.queueReversed
-                restoredPosition = snapshot.positionMs
+                restoredPlayback = snapshot
                 lastStreamUrl = snapshot.streamUrl
                 lastStreamExpiresAt = snapshot.streamExpiresAt
                 lastStreamQuality = reportedQualityId(snapshot.quality)
@@ -407,6 +409,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun handleMediaItemChanged(mediaId: String, uri: String) {
         if (mediaId.isBlank() || uri.isBlank()) return
+        restoredPlayback = null
         if (_state.value.currentTrack?.id == mediaId) {
             val recovered = awaitingServiceRecoveryMediaId == mediaId
             if (!recovered && uri == lastStreamUrl) return
@@ -487,7 +490,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun startQrLogin(provider: String) {
         qrLoginJob?.cancel()
-        if (provider !in setOf("qq", "wechat")) {
+        if (provider !in qrLoginProviders) {
             _state.update { it.copy(qrStatus = "不支持的登录方式", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0) }
             return
         }
@@ -499,8 +502,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(qrStatus = "正在生成二维码…", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0) }
             try {
                 val session = graph.controlPlane.createQrLogin(provider)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 _state.update { it.copy(
-                    qrStatus = if (provider == "qq") "使用 QQ 或 QQ音乐扫描" else "使用微信扫描",
+                    qrStatus = "",
                     qrImageBase64 = session.imageBase64,
                     qrMimeType = session.mimeType,
                     qrExpiresAt = session.expiresAt,
@@ -509,7 +513,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 while (isActive) {
                     delay(session.pollAfterMs.coerceIn(1_000, 30_000))
                     if (System.currentTimeMillis() >= session.expiresAt) {
-                        _state.update { it.copy(qrStatus = "二维码已过期，点刷新重试") }
+                        _state.update { it.copy(qrStatus = "二维码已过期，点刷新重试", qrImageBase64 = "") }
                         return@launch
                     }
                     val result = try {
@@ -524,26 +528,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         delay(retryDelay)
                         continue
                     }
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     pollFailures = 0
                     AppLog.write("LOGIN", "server_qr provider=$provider status=${result.status}")
                     when (result.status) {
-                        "waiting" -> _state.update { it.copy(qrStatus = if (provider == "qq") "使用 QQ 或 QQ音乐扫描" else "使用微信扫描") }
-                        "scanned" -> _state.update { it.copy(qrStatus = "已扫码，请在手机确认") }
+                        "waiting" -> _state.update { it.copy(qrStatus = "", qrImageBase64 = session.imageBase64) }
+                        "scanned" -> _state.update { it.copy(qrStatus = "已扫码，请在手机确认", qrImageBase64 = "") }
                         "complete" -> {
-                            _state.update { it.copy(qrStatus = "已确认，正在完成登录…") }
+                            _state.update { it.copy(qrStatus = "已确认，正在完成登录…", qrImageBase64 = "") }
                             completeServerLogin(provider, result.cookie)
                             return@launch
                         }
                         "expired" -> {
-                            _state.update { it.copy(qrStatus = "二维码已过期，点刷新重试") }
+                            _state.update { it.copy(qrStatus = "二维码已过期，点刷新重试", qrImageBase64 = "") }
                             return@launch
                         }
                         "rejected" -> {
-                            _state.update { it.copy(qrStatus = "已取消登录，点刷新重试") }
+                            _state.update { it.copy(qrStatus = "已取消登录，点刷新重试", qrImageBase64 = "") }
                             return@launch
                         }
                         else -> {
-                            _state.update { it.copy(qrStatus = "登录服务暂时不可用，点刷新重试") }
+                            _state.update { it.copy(qrStatus = "登录服务暂时不可用，点刷新重试", qrImageBase64 = "") }
                             return@launch
                         }
                     }
@@ -551,7 +556,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                AppLog.write("LOGIN", "server_qr ${error.javaClass.simpleName}:${error.message.orEmpty()}")
+                AppLog.write("LOGIN", "server_qr provider=$provider type=${error.javaClass.simpleName}")
                 _state.update { it.copy(qrStatus = "二维码加载失败，点刷新重试", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0) }
             }
         }
@@ -567,19 +572,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         runCatching {
             val account = com.ronan.qmusicwatch.login.MusicCookie.accountId(cookie)
                 ?: error("登录响应缺少账号标识")
+            val accountProvider = com.ronan.qmusicwatch.login.MusicCookie.loginProvider(cookie)
+                ?: provider
             SessionTokens(
                 accountId = account,
-                provider = com.ronan.qmusicwatch.login.MusicCookie.provider(cookie, provider),
+                provider = accountProvider,
                 upstreamCookie = cookie,
             )
         }.onSuccess { session ->
-            runCatching { graph.downloads.pauseAll() }.onFailure { AppLog.write("DOWNLOAD", "account switch ${it.javaClass.simpleName}:${it.message.orEmpty()}") }
+            try {
+                graph.downloads.pauseAll()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                AppLog.write("DOWNLOAD", "account switch ${error.javaClass.simpleName}")
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             playJob?.cancel(); playJob = null
             clearServiceRecovery()
             graph.playback.stopAndClear()
             pendingQueue = null
             _queue.value = emptyList(); _queueIndex.value = -1; _queueReversed.value = false
-            restoredPosition = 0; lastStreamUrl = ""; lastStreamExpiresAt = 0
+            restoredPlayback = null; lastStreamUrl = ""; lastStreamExpiresAt = 0
             graph.vault.save(session)
             currentSession = session
             sessionGeneration++
@@ -590,7 +604,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { s -> s.copy(
                 home = null, library = null, libraryLoading = false, libraryError = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
                 detail = null, detailDirectoryId = null, offlineSnapshot = false,
-                pendingSpeakerTrack = null,
+                currentTrack = null, lyrics = emptyList(), lyricsLoading = false, lyricsError = null,
+                activeStreamQuality = QUALITY_STANDARD, playbackLoading = false, pendingSpeakerTrack = null,
                 queueImportTitle = "", queueImportTracks = emptyList(), queueImportLoading = false, searchLoading = false,
                 qrStatus = "登录成功", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0, message = "登录成功",
             ) }
@@ -618,7 +633,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         graph.playback.stopAndClear(); graph.vault.clear(); currentSession = null
         pendingQueue = null
         _queue.value = emptyList(); _queueIndex.value = -1; _queueReversed.value = false
-        restoredPosition = 0; lastStreamUrl = ""; lastStreamExpiresAt = 0
+        restoredPlayback = null; lastStreamUrl = ""; lastStreamExpiresAt = 0
         viewModelScope.launch { graph.settings.setPlaybackSnapshot(""); graph.settings.setProfileCache("") }
         _state.update { it.copy(
             home = null, library = null, libraryLoading = false, libraryError = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
@@ -645,7 +660,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (generation != sessionGeneration || request != libraryReadGeneration) return@launch
             _state.update { it.copy(libraryLoading = true, libraryLoadedCount = 0, libraryError = null) }
             try {
-                val rawValue = graph.api.library(onPlaylists = { owned, collected ->
+                val value = graph.api.library(onPlaylists = { owned, collected ->
                     withContext(Dispatchers.Main.immediate) {
                         if (generation == sessionGeneration && request == libraryReadGeneration) _state.update { state ->
                             val old = state.library ?: LibraryData(emptyList(), emptyList())
@@ -662,8 +677,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             _state.update { it.copy(libraryLoadedCount = count) }
                         }
                     }
+                }, onLikedLoaded = { liked ->
+                    withContext(Dispatchers.Main.immediate) {
+                        if (generation == sessionGeneration && request == libraryReadGeneration) _state.update { state ->
+                            state.copy(library = LibraryData(liked, state.library?.playlists.orEmpty()))
+                        }
+                    }
                 })
-                val value = withContext(Dispatchers.Default) { normalizeLibraryData(rawValue) }
                 if (generation != sessionGeneration || request != libraryReadGeneration) return@launch
                 lastLibraryRefreshAt = android.os.SystemClock.elapsedRealtime()
                 _state.update { it.copy(library = value, libraryLoading = false, libraryError = null, offlineSnapshot = false) }
@@ -969,86 +989,98 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .onSuccess { verified -> _state.update { it.copy(updateState = UpdateUiState.Ready(release, verified.absolutePath)) }; onReady(verified) }
             .onFailure { error -> _state.update { it.copy(updateState = UpdateUiState.Error(error.message ?: "安装包校验失败", release)) } }
     }
-    fun requestPlay(
+    fun requestPlay(track: Track, allowSpeaker: Boolean = false, sourceQueue: List<Track>? = null) =
+        playTrack(track, allowSpeaker, sourceQueue)
+
+    private fun playTrack(
         track: Track,
         allowSpeaker: Boolean = false,
         sourceQueue: List<Track>? = null,
         forceFreshStream: Boolean = false,
+        resumePositionMs: Long = 0L,
+        skipping: Boolean = false,
     ) {
         clearServiceRecovery()
         qualitySwitchJob?.cancel(); qualitySwitchJob = null
         playJob?.cancel()
+        pendingSkipTrackId = track.id.takeIf { skipping }
         playJob = viewModelScope.launch {
-        sessionReady.await()
-        _state.update { it.copy(playbackLoading = true, message = null) }
-        if (!track.playable && !track.requiresVip) return@launch failPlayback(IllegalStateException("这首歌曲当前不可播放"))
-        // Read the persisted snapshot for this play request. The previous
-        // lazy compatibility flow could remain at its default `true`, causing
-        // the warning to appear after the user had disabled it in Settings.
-        // Reading the DataStore flow also closes the small race where a user
-        // toggles the switch and starts playback immediately afterwards.
-        val playbackSettings = graph.settings.snapshot.first()
-        if (playbackSettings.headphoneWarning && !allowSpeaker && !com.ronan.qmusicwatch.playback.hasPrivateAudioOutput(getApplication())) {
-            pendingQueue = sourceQueue
-            _state.update { it.copy(pendingSpeakerTrack = track, playbackLoading = false) }; return@launch
-        }
-        val owner = accountId ?: return@launch failPlayback(IllegalStateException("请先登录后播放"))
-        var issuedUrl = ""
-        var issuedExpiresAt = 0L
-        val requestedQuality = playbackSettings.quality
-        var issuedQuality = requestedQuality
-        var resolvedTrack = track
-        runCatching {
-            val local = graph.db.downloads().find(track.id, owner)?.takeIf { it.status == "complete" && File(it.filePath).exists() }
-            if (local == null && !featureEnabled("stream")) error(featureMessage("stream").ifBlank { "在线播放暂时维护，仍可播放已缓存歌曲" })
-            val stream = if (local == null) {
-                if (forceFreshStream) graph.api.refreshStream(track, requestedQuality)
-                else graph.api.stream(track, requestedQuality)
-            } else null
-            val uri = local?.let { android.net.Uri.fromFile(File(it.filePath)).toString() } ?: stream!!.url
-            local?.let { item -> cachedArtworkFile(item.filePath).takeIf(File::exists)?.let { resolvedTrack = track.copy(artworkUrl = android.net.Uri.fromFile(it).toString()) } }
-            issuedUrl = uri
-            issuedExpiresAt = stream?.expiresAt ?: Long.MAX_VALUE
-            issuedQuality = stream?.quality ?: local?.quality ?: requestedQuality
-            kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            sourceQueue?.takeIf(List<Track>::isNotEmpty)?.let { source ->
-                _queue.value = source.distinctBy(Track::id)
-                _queueReversed.value = false
+            sessionReady.await()
+            _state.update { it.copy(playbackLoading = true, message = null) }
+            if (!track.playable && !track.requiresVip) return@launch failPlayback(IllegalStateException("这首歌曲当前不可播放"))
+            // Read the persisted snapshot for this play request. The previous
+            // lazy compatibility flow could remain at its default `true`, causing
+            // the warning to appear after the user had disabled it in Settings.
+            // Reading the DataStore flow also closes the small race where a user
+            // toggles the switch and starts playback immediately afterwards.
+            val playbackSettings = graph.settings.snapshot.first()
+            if (playbackSettings.headphoneWarning && !allowSpeaker && !com.ronan.qmusicwatch.playback.hasPrivateAudioOutput(getApplication())) {
+                pendingQueue = sourceQueue
+                _state.update { it.copy(pendingSpeakerTrack = track, playbackLoading = false) }; return@launch
             }
-            if (_queue.value.none { it.id == track.id }) _queue.value = _queue.value + track
-            _queueIndex.value = _queue.value.indexOfFirst { it.id == track.id }
-            pendingQueue = null
-            lastStreamUrl = issuedUrl
-            lastStreamExpiresAt = issuedExpiresAt
-            lastStreamQuality = issuedQuality
-            _state.update {
-                it.copy(
-                    currentTrack = resolvedTrack,
-                    activeStreamQuality = reportedQualityId(issuedQuality),
-                    lyrics = emptyList(),
-                    pendingSpeakerTrack = null,
-                    playbackLoading = false,
-                    playEvent = System.nanoTime(),
-                    message = qualityFallbackMessage(requestedQuality, issuedQuality, track, it.profile),
-                )
-            }
-            ensureLyrics()
-            val initialPosition = restoredPosition.coerceAtLeast(0L)
-            // The service can receive a load error immediately after prepare,
-            // so make the new stream recoverable before handing it to Media3.
-            persistSnapshotNow(initialPosition, allowMediaMismatch = true)
-            graph.playback.play(track.id, uri, track.title, track.artists.joinToString(" / "), resolvedTrack.artworkUrl)
-            if (initialPosition > 0 && _state.value.currentTrack?.id == track.id) graph.playback.seek(initialPosition)
-            graph.db.recent().upsert(RecentEntity(track.id, owner, track.title, track.artists.joinToString(" / "), track.album, track.artworkUrl, System.currentTimeMillis()))
-        }.onSuccess {
-            if (_state.value.currentTrack?.id == track.id && graph.playback.currentMediaId() == track.id) {
-                restoredPosition = 0
-            }
-        }.onFailure { error -> if (error !is CancellationException) failPlayback(error) }
+            val owner = accountId ?: return@launch failPlayback(IllegalStateException("请先登录后播放"))
+            val requestedQuality = playbackSettings.quality
+            runCatching {
+                val local = graph.db.downloads().find(track.id, owner)?.takeIf { it.status == "complete" && File(it.filePath).exists() }
+                if (local == null && !featureEnabled("stream")) error(featureMessage("stream").ifBlank { "在线播放暂时维护，仍可播放已缓存歌曲" })
+                val stream = if (local == null) {
+                    if (forceFreshStream) graph.api.refreshStream(track, requestedQuality)
+                    else graph.api.stream(track, requestedQuality)
+                } else null
+                val uri = local?.let { android.net.Uri.fromFile(File(it.filePath)).toString() } ?: stream!!.url
+                val cover = local?.let { cachedArtworkFile(it.filePath).takeIf(File::exists) }
+                val resolvedTrack = cover?.let { track.copy(artworkUrl = android.net.Uri.fromFile(it).toString()) } ?: track
+                val issuedExpiresAt = stream?.expiresAt ?: Long.MAX_VALUE
+                val issuedQuality = stream?.quality ?: local?.quality ?: requestedQuality
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val source = sourceQueue?.takeIf(List<Track>::isNotEmpty)
+                val queue = source?.distinctBy(Track::id) ?: _queue.value
+                val nextQueue = if (queue.any { it.id == track.id }) queue else queue + track
+                val reversed = source == null && _queueReversed.value
+                val startPosition = resumePositionMs.coerceAtLeast(0L)
+                playbackSnapshotMutex.withLock {
+                    // Save the exact item and start position before prepare can trigger recovery.
+                    graph.settings.setPlaybackSnapshot(json.encodeToString(
+                        PlaybackSnapshot(resolvedTrack, nextQueue, startPosition, reversed, uri, issuedExpiresAt, issuedQuality, owner),
+                    ))
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    _queue.value = nextQueue
+                    _queueReversed.value = reversed
+                    _queueIndex.value = nextQueue.indexOfFirst { it.id == track.id }
+                    pendingQueue = null
+                    restoredPlayback = null
+                    lastStreamUrl = uri
+                    lastStreamExpiresAt = issuedExpiresAt
+                    lastStreamQuality = issuedQuality
+                    _state.update {
+                        it.copy(
+                            currentTrack = resolvedTrack,
+                            activeStreamQuality = reportedQualityId(issuedQuality),
+                            lyrics = emptyList(),
+                            pendingSpeakerTrack = null,
+                            playbackLoading = false,
+                            playEvent = System.nanoTime(),
+                            message = qualityFallbackMessage(requestedQuality, issuedQuality, track, it.profile),
+                        )
+                    }
+                    graph.playback.replaceStream(track.id, uri, track.title, track.artists.joinToString(" / "),
+                        resolvedTrack.artworkUrl, startPositionMs = startPosition, playWhenReady = true)
+                }
+                ensureLyrics()
+                graph.db.recent().upsert(RecentEntity(track.id, owner, track.title, track.artists.joinToString(" / "), track.album, track.artworkUrl, System.currentTimeMillis()))
+            }.onFailure { error -> if (error !is CancellationException) failPlayback(error) }
         }
     }
-    fun continueOnSpeaker() { _state.value.pendingSpeakerTrack?.let { requestPlay(it, true, pendingQueue) } }
-    fun dismissSpeakerPrompt() = _state.update { it.copy(pendingSpeakerTrack = null) }
+    fun continueOnSpeaker() {
+        val track = _state.value.pendingSpeakerTrack ?: return
+        val queue = pendingQueue
+        dismissSpeakerPrompt()
+        requestPlay(track, true, queue)
+    }
+    fun dismissSpeakerPrompt() {
+        pendingQueue = null
+        _state.update { it.copy(pendingSpeakerTrack = null) }
+    }
     fun ensureLyrics(force: Boolean = false) {
         val track = _state.value.currentTrack ?: return
         val owner = accountId ?: return
@@ -1334,12 +1366,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun skipNext() = playAdjacent(1, false)
     fun skipPrevious() = playAdjacent(-1, false)
     private fun playAdjacent(delta: Int, ended: Boolean) {
-        if (_queue.value.isEmpty()) return
+        val queue = _queue.value
+        if (queue.isEmpty()) return
+        val pending = pendingSkipTrackId?.takeIf { playJob?.isActive == true }
+        val current = queue.indexOfFirst { it.id == pending }.takeIf { it >= 0 } ?: _queueIndex.value
         val mode = playMode.value
-        val random = if (mode == "shuffle" && _queue.value.size > 1) _queue.value.indices.filter { it != _queueIndex.value }.random() else -1
-        val target = nextQueueIndex(_queue.value.size, _queueIndex.value, delta, mode, ended, random)
-        if (target < 0) return
-        playQueueItem(target)
+        val random = if (mode == "shuffle" && queue.size > 1) queue.indices.filter { it != current }.random() else -1
+        val target = nextQueueIndex(queue.size, current, delta, mode, ended, random)
+        queue.getOrNull(target)?.let { playTrack(it, allowSpeaker = true, skipping = true) }
     }
     fun saveQueueAsPlaylist(title: String) = viewModelScope.launch {
         if (!requirePlaylistWrites()) return@launch
@@ -1381,30 +1415,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun playbackPosition() = graph.playback.position()
     fun playbackDuration() = graph.playback.duration()
     fun isPlaying() = graph.playback.isPlaying()
-    fun playbackSnapshot() = graph.playback.snapshot()
+    fun playbackSnapshot(trackId: String) = graph.playback.snapshot(trackId)
     fun pausePlayback() { graph.playback.pause(); persistSnapshot() }
     fun resumePlayback() {
         if (_state.value.playbackLoading) return
         if (graph.playback.duration() == 0L) {
-            _state.value.currentTrack?.let { requestPlay(it, allowSpeaker = true, forceFreshStream = true) }
+            _state.value.currentTrack?.let { track ->
+                val position = restoredPlayback?.takeIf { it.belongsToAccount(accountId) && it.track?.id == track.id }?.positionMs
+                    ?: graph.playback.position().takeIf { graph.playback.currentMediaId() == track.id }
+                    ?: 0L
+                playTrack(track, allowSpeaker = true, forceFreshStream = true, resumePositionMs = position)
+            }
         } else {
             graph.playback.resume()
         }
     }
     fun seek(position: Long) = graph.playback.seek(position)
     fun adjustVolume(direction: Int): Boolean = graph.playback.adjustVolume(direction)
+    fun setMediaVolume(level: Int) { graph.playback.setMediaVolume(level) }
+    fun refreshDeviceVolume() = graph.playback.refreshDeviceVolume()
     fun savePlaybackState() = persistSnapshot()
-    private fun persistSnapshot(position: Long = graph.playback.position()) = viewModelScope.launch {
+    private fun persistSnapshot(position: Long? = null) = viewModelScope.launch {
         persistSnapshotNow(position)
     }
-    private suspend fun persistSnapshotNow(
-        position: Long,
-        allowMediaMismatch: Boolean = false,
-    ) = playbackSnapshotMutex.withLock {
+
+    private suspend fun persistSnapshotNow(position: Long?) = playbackSnapshotMutex.withLock {
         val owner = accountId ?: return@withLock
         val track = _state.value.currentTrack
         val activeMediaId = graph.playback.currentMediaId()
-        if (!allowMediaMismatch && activeMediaId.isNotBlank() && track?.id != activeMediaId) return@withLock
+        if (activeMediaId.isNotBlank() && track?.id != activeMediaId) return@withLock
+        val savedPosition = position ?: restoredPlayback?.takeIf { it.track?.id == track?.id }?.positionMs
+            ?: graph.playback.position()
         val activeUri = graph.playback.currentUri()
             .takeIf { activeMediaId == track?.id && it.isNotBlank() }
             .orEmpty()
@@ -1435,7 +1476,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 PlaybackSnapshot(
                     track,
                     _queue.value,
-                    position,
+                    savedPosition,
                     _queueReversed.value,
                     streamUrl,
                     streamExpiresAt,

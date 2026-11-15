@@ -43,10 +43,14 @@ internal fun parseQqTrackPage(root: JsonObject): QqTrackPage {
     } ?: throw QqResponseException("QQ 音乐响应缺少歌曲列表，请稍后重试")
     val items = trackListKeys.firstNotNullOf { container[it] as? JsonArray }
     fun number(vararg names: String): Int? = names.firstNotNullOfOrNull { name ->
-        (container[name] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+        ((container[name] ?: root[name]) as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
     }
-    val total = number("total_song_num", "totalNum", "total", "totalnum", "totalSongNum")
-    val more = (container["hasmore"] ?: container["hasMore"]) as? JsonPrimitive
+    val total = number("total_song_num", "totalNum", "total", "totalnum", "totalSongNum", "totalSongCount")
+        ?: sequenceOf("dirinfo", "dirInfo", "dissinfo", "dissInfo")
+            .mapNotNull { (container[it] ?: root[it]) as? JsonObject }
+            .flatMap { info -> sequenceOf("songnum", "songNum", "song_num").mapNotNull { (info[it] as? JsonPrimitive)?.intOrNull } }
+            .firstOrNull { it >= 0 }
+    val more = (container["hasmore"] ?: container["hasMore"] ?: root["hasmore"] ?: root["hasMore"]) as? JsonPrimitive
     // Pagination must count upstream slots, not parsed/deduplicated tracks.
     // A page may contain unavailable entries or duplicate song MIDs.
     val consumed = maxOf(items.size, number("songlist_size") ?: 0)

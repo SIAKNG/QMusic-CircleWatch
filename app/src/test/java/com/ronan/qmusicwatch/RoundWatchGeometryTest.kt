@@ -57,6 +57,6 @@ class RoundWatchGeometryTest {
         assertFalse(update.hasUpdate)
         assertEquals(BuildConfig.VERSION_NAME, update.versionName)
         assertEquals(BuildConfig.VERSION_CODE, update.versionCode)
-        assertEquals("com.qmusicwatch.round", BuildConfig.APPLICATION_ID)
+        assertTrue(BuildConfig.APPLICATION_ID in setOf("com.tencent.qqmusicwatch", "com.qmusicwatch.round"))
     }
 }

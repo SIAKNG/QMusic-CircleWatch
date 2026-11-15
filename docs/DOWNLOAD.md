@@ -1,6 +1,14 @@
 # 下载安装包
 
-QMusic-CircleWatch 是 QQ 音乐安卓手表版第三方应用，适用于圆形表盘。当前版本提供两个安装包，请按是否需要 OPPO 原厂媒体控制选择。
+QMusic-CircleWatch 是 QQ 音乐安卓手表版第三方应用，适用于圆形表盘。请按是否需要 OPPO 原厂媒体控制选择安装包。
+
+## 1.2
+
+1.2 提供支持 OPPO 原厂媒体控制的安装包，包名为 `com.tencent.qqmusicwatch`。如果手表上已安装官方 QQ 音乐，请先卸载官方版。两个应用使用同一包名，无法同时安装。
+
+[![下载 1.2 支持媒体控制版](buttons/download-media.svg)](https://github.com/SIAKNG/QMusic-CircleWatch/releases/tag/v1.2)
+
+[安装与更新说明](RELEASE_1_2.md)
 
 ## 1.1
 

@@ -799,12 +799,12 @@ class PlaybackService : MediaLibraryService() {
             true
         }
         if (!committed) return false
-        graph.db.recent().upsert(RecentEntity(track.id, owner, track.title, track.artists.joinToString(" / "), track.album, track.artworkUrl, System.currentTimeMillis()))
         withContext(Dispatchers.Main) {
-            player.setMediaItem(playbackMediaItem(track.id, uri, track.title, track.artists.joinToString(" / "), artwork))
+            player.setMediaItem(playbackMediaItem(track.id, uri, track.title, track.artists.joinToString(" / "), artwork), 0L)
             player.prepare()
             player.play()
         }
+        graph.db.recent().upsert(RecentEntity(track.id, owner, track.title, track.artists.joinToString(" / "), track.album, track.artworkUrl, System.currentTimeMillis()))
         return true
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session

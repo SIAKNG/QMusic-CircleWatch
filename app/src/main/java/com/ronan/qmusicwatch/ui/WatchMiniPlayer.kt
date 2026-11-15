@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -118,9 +119,10 @@ fun WatchMiniPlayer(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            val marquee = if (collapsed) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE)
+                            Text(title, marquee, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 fontSize = if (round) 13.sp else dimensions.bodySp.sp, fontWeight = FontWeight.SemiBold)
-                            Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            Text(subtitle, marquee, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = WatchTextSecondary, fontSize = if (round) 10.sp else dimensions.secondarySp.sp)
                         }
                         WatchIconButton(

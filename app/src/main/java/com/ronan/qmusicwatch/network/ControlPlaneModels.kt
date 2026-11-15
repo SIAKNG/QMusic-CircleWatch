@@ -102,8 +102,10 @@ data class ControlQrStatus(
     val cookie: String = "",
 )
 
+internal val qrLoginProviders = setOf("qq", "wechat")
+
 internal fun validateQrSession(value: ControlQrSession, expectedProvider: String): ControlQrSession {
-    require(expectedProvider in setOf("qq", "wechat") && value.provider == expectedProvider) { "二维码登录方式不匹配" }
+    require(expectedProvider in qrLoginProviders && value.provider == expectedProvider) { "二维码登录方式不匹配" }
     require(value.id.matches(Regex("[A-Za-z0-9_-]{24,96}"))) { "二维码会话标识无效" }
     require(value.mimeType in setOf("image/png", "image/jpeg")) { "二维码图片格式无效" }
     require(value.imageBase64.length in 128..700_000 && value.imageBase64.matches(Regex("[A-Za-z0-9+/]*={0,2}"))) { "二维码图片数据无效" }
@@ -161,12 +163,18 @@ internal fun validateUpdateContract(
     return release
 }
 
+private val qqGroupPromotion = Regex(
+    """交流群|共享群|群号|加群|QQ\s*群|(?:qun|jq)\.qq\.com|mqqapi://[^\s]*group""",
+    RegexOption.IGNORE_CASE,
+)
+
 internal fun visibleAnnouncements(
     items: List<ControlAnnouncement>,
     versionCode: Int,
     now: Long,
 ): List<ControlAnnouncement> = items.filter { item ->
     item.enabled && item.id.isNotBlank() && item.id.length <= 100 && item.severity in setOf("info", "warning", "critical") &&
+        !qqGroupPromotion.containsMatchIn(item.title + "\n" + item.content) &&
         (item.startsAt <= 0 || item.startsAt <= now) &&
         (item.endsAt <= 0 || item.endsAt >= now) &&
         (item.minVersionCode <= 0 || item.minVersionCode <= versionCode) &&

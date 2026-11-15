@@ -10,7 +10,7 @@
 
 ## 构建与身份
 
-默认构建保持 com.qmusicwatch.round。显式使用 Gradle 参数 -PoppoMediaCompat=true，或项目管理/build.ps1 的 -OppoMediaCompat 开关，生成 applicationId 为 com.tencent.qqmusicwatch 的兼容 APK。界面、图标、第三方说明、代码命名空间、项目签名与版本仍属于 QMusic-CircleWatch，未使用官方签名，不接收上游原版 APK 更新。
+从 1.2 起默认构建 `com.tencent.qqmusicwatch`，以进入 OPPO 原厂媒体控制。只有明确要求共存时，才用 Gradle 参数 `-PoppoMediaCompat=false` 或 `项目管理/build.ps1 -Standalone` 构建 `com.qmusicwatch.round`。两种包均沿用 QMusic-CircleWatch 的界面、图标和项目签名，禁用上游原版 APK 更新。
 
 两个包的数据各自独立，兼容包首次使用需要重新登录。兼容包不能与官方 QQ 音乐同时安装，也不能用本项目签名直接覆盖不同签名的官方版本。不要为默认版升级安装兼容包而宣称数据自动迁移。正式包不包含演示账号、展示入口或测试音源。
 
@@ -26,4 +26,4 @@
 
 USB 调试连接恢复后，直接操作原厂媒体控制按钮完成验证：暂停进入 STATE_PAUSED；恢复进入 STATE_PLAYING，位置从 73.758 秒推进至 76.828 秒；下一首及上一首均切换真实歌曲与封面，回到播放状态；最后暂停成功，位置 8.516 秒。首轮快速断言遇到歌曲自然结束后的缓冲状态，后续明确等待真实流加载完成再判定，未将缓冲误记为暂停失效。原厂控件读取与控制已在 OWW251 通过，Watch X3 仍需单独实机确认。
 
-当前手表使用此兼容构建，后续覆盖更新必须仍使用相同包名及本项目签名，不能将默认独立包直接当作兼容包升级。原独立版保留为回退，不清除其数据。
+覆盖更新须匹配已安装应用的包名及本项目签名。两个包的数据独立，已安装的独立版可以保留。

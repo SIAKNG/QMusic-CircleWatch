@@ -154,7 +154,7 @@ class ShowcaseActivity : ComponentActivity() {
             "liked", "library/liked" -> LibraryScreen(nav, state, vm, LibrarySection.Liked)
             "created", "library/created" -> LibraryScreen(nav, state, vm, LibrarySection.Created)
             "collected", "library/collected" -> LibraryScreen(nav, state, vm, LibrarySection.Collected)
-            "recent" -> TrackListScreen("最近播放", state.recent, playlists, vm, back)
+            "recent" -> TrackListScreen("最近播放", state.recent, playlists, vm, state.currentTrack?.id, back)
             "detail" -> DetailScreen(CollectionDetail("日落随身听", tracks), null, false, null, playlists, vm, back)
             "downloads" -> DownloadScreen(downloads, vm, back)
             "player", "lyrics", "player-menu" -> PlayerScreen(tracks.first(), state.lyrics, vm,

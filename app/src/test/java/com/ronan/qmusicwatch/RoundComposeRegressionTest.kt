@@ -27,6 +27,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextClock
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.ui.platform.testTag
@@ -41,9 +42,66 @@ class RoundComposeRegressionTest {
     @get:Rule val compose = createComposeRule()
     private var previewView: View? = null
 
+    @Test fun volumePanelSeparatesSliderDragFromLeftEdgeBack() {
+        var level by mutableIntStateOf(5)
+        var open by mutableStateOf(true)
+        var touchSlop = 0f
+        compose.setContent {
+            QMusicWatchTheme(uiSize = "standard", pureBlack = true) {
+                val slop = LocalViewConfiguration.current.touchSlop
+                SideEffect { touchSlop = slop }
+                Box(Modifier.fillMaxSize().testTag("volume-host").watchSwipeBack(true, 70f, 65f) { open = false }) {
+                    if (open) WatchVolumePanel(com.ronan.qmusicwatch.playback.DeviceVolumeState(level, 15),
+                        onChange = { level = it })
+                }
+            }
+        }
+        val slider = compose.onNodeWithContentDescription("媒体音量", useUnmergedTree = true)
+        slider.performTouchInput {
+            swipe(center, center.copy(y = center.y - touchSlop - height * .08f), durationMillis = 300L)
+        }
+        compose.runOnIdle { assertEquals("Volume after short upward drag", 6, level) }
+        slider.performTouchInput {
+            swipe(center.copy(y = center.y + 28f), center.copy(y = center.y - 42f), durationMillis = 400L)
+        }
+        compose.runOnIdle { assertTrue("Volume after upward drag: $level", level > 6); assertTrue(open) }
+        compose.onNodeWithTag("volume-host").performTouchInput {
+            swipe(androidx.compose.ui.geometry.Offset(8f, center.y), center)
+        }
+        compose.runOnIdle { assertFalse(open) }
+    }
+
     @Composable private fun PreviewView() {
         val view = LocalView.current
         SideEffect { previewView = view }
+    }
+
+    @Test fun playbackOptionsHeaderStaysAlignedAndShrinksWhenScrolled() {
+        var open by mutableStateOf(true)
+        compose.setContent {
+            QMusicWatchTheme(uiSize = "standard", pureBlack = true) {
+                if (open) WatchSelectionDialog("播放选项", onDismissRequest = { open = false }) {
+                    items(8) { index -> WatchSelectionRow("选项 ${index + 1}", selected = false, onClick = {}) }
+                }
+            }
+        }
+        val back = compose.onNodeWithContentDescription("返回").assertIsDisplayed()
+        val title = compose.onNodeWithText("播放选项").assertIsDisplayed()
+        val titleBounds = title.getUnclippedBoundsInRoot()
+        val backBounds = back.getUnclippedBoundsInRoot()
+        assertEquals((titleBounds.top.value + titleBounds.bottom.value) / 2f,
+            (backBounds.top.value + backBounds.bottom.value) / 2f, 1f)
+        assertTrue(backBounds.right <= titleBounds.left)
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(5)
+        val pinned = compose.onNodeWithTag("pinned-list-header").assertIsDisplayed()
+        val pinnedTitle = compose.onNode(hasText("播放选项") and hasAnyAncestor(hasTestTag("pinned-list-header")))
+        val compactTitleBounds = pinnedTitle.getUnclippedBoundsInRoot()
+        assertTrue(compactTitleBounds.bottom - compactTitleBounds.top < titleBounds.bottom - titleBounds.top)
+        val pinnedBounds = pinned.getUnclippedBoundsInRoot()
+        compose.onNode(hasScrollToIndexAction()).performScrollToIndex(7)
+        assertEquals(pinnedBounds, pinned.getUnclippedBoundsInRoot())
+        compose.onNode(hasContentDescription("返回") and hasAnyAncestor(hasTestTag("pinned-list-header"))).performClick()
+        title.assertDoesNotExist()
     }
 
     private fun preview(name: String) {
