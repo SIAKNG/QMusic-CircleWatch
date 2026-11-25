@@ -17,8 +17,11 @@ import com.ronan.qmusicwatch.update.UpdateManager
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
 import java.io.File
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -185,6 +188,86 @@ class PlaybackSettingsRobolectricTest {
         } finally {
             release.countDown()
         }
+    }
+
+    @Test fun manualNextAndPreviousRetryTheDefaultAfterThisSongFallsBackOnNetworkFailure() = runBlocking {
+        var failPreferred = true
+        val next = track.copy(id = "next-song", mediaMid = "next-mid")
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            val body = request.body?.let { Buffer().apply(it::writeTo).readUtf8() }.orEmpty()
+            val isStream = body.contains("CgiGetVkey") || body.contains("UrlGetVkey")
+            if (isStream) {
+                streamRequests += body
+                if (failPreferred && body.contains("F000media-mid.flac")) throw java.io.IOException("temporary network failure")
+            }
+            val file = Regex("(?:F000|M800|M500)[A-Za-z0-9-]+\\.(?:flac|mp3)").find(body)?.value ?: "F000media-mid.flac"
+            val data = if (isStream) """{"midurlinfo":[{"purl":"$file"}],"sip":["https://dl.stream.qqmusic.qq.com/"]}""" else """{"songlist":[],"lyric":"","trans":""}"""
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
+                .body("""{"code":0,"req_0":{"code":0,"data":$data}}""".toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        setFixtureField(app.api, "http", http)
+        val vm = viewModel()
+        vm.requestPlay(track, allowSpeaker = true, sourceQueue = listOf(track, next))
+        awaitCondition { vm.state.value.currentTrack?.id == track.id && vm.state.value.activeStreamQuality == "hq" }
+        assertEquals("sq", vm.settings.value.quality)
+        assertTrue(vm.state.value.message.orEmpty().contains("临时切换"))
+        failPreferred = false
+        streamRequests.clear()
+        vm.skipNext()
+        awaitCondition { vm.state.value.currentTrack?.id == next.id }
+        assertEquals("sq", vm.state.value.activeStreamQuality)
+        assertTrue(streamRequests.first().contains("F000next-mid.flac"))
+        streamRequests.clear()
+        vm.skipPrevious()
+        awaitCondition { vm.state.value.currentTrack?.id == track.id }
+        assertEquals("sq", vm.state.value.activeStreamQuality)
+        assertTrue("Previous must retry SQ, rather than reuse its earlier network fallback", streamRequests.any { it.contains("F000media-mid.flac") })
+        assertEquals("sq", vm.settings.value.quality)
+    }
+
+    @Test fun automaticForwardAndReverseQueueTransitionsReadDefaultInsteadOfSnapshotQuality() = runBlocking {
+        val controller = org.robolectric.Robolectric.buildService(com.ronan.qmusicwatch.playback.PlaybackService::class.java).create()
+        val service = controller.get()
+        val field = service.javaClass.getDeclaredField("player").apply { isAccessible = true }
+        val original = field.get(service)
+        var current = androidx.media3.common.MediaItem.Builder().setMediaId(track.id).setUri("https://dl.stream.qqmusic.qq.com/M800media-mid.mp3").build()
+        val proxy = java.lang.reflect.Proxy.newProxyInstance(androidx.media3.exoplayer.ExoPlayer::class.java.classLoader,
+            arrayOf(androidx.media3.exoplayer.ExoPlayer::class.java)) { _, method, args ->
+            when (method.name) {
+                "getCurrentMediaItem" -> current
+                "setMediaItem" -> { current = args!![0] as androidx.media3.common.MediaItem; null }
+                "getPlaybackState" -> androidx.media3.common.Player.STATE_READY
+                else -> when (method.returnType) { java.lang.Boolean.TYPE -> false; java.lang.Integer.TYPE -> 0; java.lang.Long.TYPE -> 0L; java.lang.Float.TYPE -> 0f; else -> null }
+            }
+        }
+        field.set(service, proxy)
+        val skip = service.javaClass.getDeclaredMethod("skipFromSnapshot", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, kotlin.coroutines.Continuation::class.java).apply { isAccessible = true }
+        val next = track.copy(id = "next-song", mediaMid = "next-mid")
+        val previous = track.copy(id = "previous-song", mediaMid = "previous-mid")
+        val codec = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        try {
+            for (reverse in listOf(false, true)) {
+                val queue = if (reverse) listOf(next, track, previous) else listOf(previous, track, next)
+                val expected = if (reverse) previous else next
+                current = androidx.media3.common.MediaItem.Builder().setMediaId(track.id).setUri("https://dl.stream.qqmusic.qq.com/M800media-mid.mp3").build()
+                app.api.invalidateStream(expected.id)
+                app.settings.setPlaybackSnapshot(codec.encodeToString(com.ronan.qmusicwatch.model.PlaybackSnapshot.serializer(),
+                    com.ronan.qmusicwatch.model.PlaybackSnapshot(track, queue, 25_000, reverse, current.localConfiguration!!.uri.toString(), Long.MAX_VALUE, "hq", "test-owner")))
+                streamRequests.clear()
+                val transition = async(Dispatchers.Default) {
+                    kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn<Boolean> { continuation -> skip.invoke(service, 1, true, continuation) }
+                }
+                awaitCondition { transition.isCompleted }
+                assertTrue(transition.await())
+                assertEquals(expected.id, current.mediaId)
+                assertTrue(streamRequests.first().contains("F000${expected.mediaMid}.flac"))
+                val saved = codec.decodeFromString(com.ronan.qmusicwatch.model.PlaybackSnapshot.serializer(), app.settings.playbackSnapshot.first())
+                assertEquals("sq", saved.quality)
+                assertEquals(0L, saved.positionMs)
+                assertEquals("sq", app.settings.quality.first())
+            }
+        } finally { field.set(service, original); controller.destroy() }
     }
 
     @Test fun changingTheDefaultAlsoRequestsSqForTheCurrentMinimalMetadataTrack() = runBlocking {

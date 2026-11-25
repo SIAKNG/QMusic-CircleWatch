@@ -993,7 +993,9 @@ class ApiClient(
         val generation = streamGenerations.getOrPut(scopeKey) { 0L }
         val cacheKey = "$scopeKey:$preferred"
         streamCache[cacheKey]?.takeIf {
-            allowCached &&
+            // A temporary network fallback belongs to that play attempt.
+            // Returning to this song must retry the saved default first.
+            allowCached && !it.data.networkFallback &&
                 it.generation == generation &&
                 it.data.expiresAt > System.currentTimeMillis() + 30_000L &&
                 trustedQMusicMediaUrl(it.data.url).isNotBlank()
@@ -1041,7 +1043,10 @@ class ApiClient(
                     if (url.isBlank()) error("音乐服务器返回了不受信任的播放地址")
                     val actual = inferQqStreamQuality(path.value, path.sourceKey)
                     if (actual == QUALITY_LEGACY_UNKNOWN) return@attempt
-                    val stream = StreamData(url, actual, System.currentTimeMillis() + data.long("expiration", 3600) * 1000)
+                    val stream = StreamData(
+                        url, actual, System.currentTimeMillis() + data.long("expiration", 3600) * 1000,
+                        networkFallback = firstFailure is IOException && qualityRank(actual) < qualityRank(preferred),
+                    )
                     AppLog.write("STREAM", "issued requested=$requested actual=$actual via=$module")
                     bestFallback = higherQualityStream(bestFallback, stream)
                     if (actual == requested) {
