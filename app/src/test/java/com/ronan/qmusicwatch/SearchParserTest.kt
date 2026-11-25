@@ -7,7 +7,6 @@ import com.ronan.qmusicwatch.network.normalizeHttpsUrl
 import com.ronan.qmusicwatch.network.qqStreamFileName
 import com.ronan.qmusicwatch.network.inferQqStreamQuality
 import com.ronan.qmusicwatch.network.higherQualityStream
-import com.ronan.qmusicwatch.model.QUALITY_HI_RES
 import com.ronan.qmusicwatch.model.QUALITY_HQ
 import com.ronan.qmusicwatch.model.QUALITY_SQ
 import com.ronan.qmusicwatch.model.QUALITY_STANDARD
@@ -43,7 +42,7 @@ class SearchParserTest {
     @Test fun readsModernNestedFileQualityFields() {
         val item = Json.parseToJsonElement("""{"mid":"song-mid","title":"Song","id":42,"type":0,"isonly":1,"singer":[{"name":"Singer"}],"album":{"title":"Album","mid":"albumMID123"},"file":{"media_mid":"media-mid","size_128mp3":100,"size_320mp3":200,"size_flac":300,"size_hires":400},"pay":{"pay_play":1}}""").jsonObject
         val track = parseSearchTrack(item)!!
-        assertEquals(listOf(QUALITY_STANDARD, QUALITY_HQ, QUALITY_SQ, QUALITY_HI_RES), track.qualities)
+        assertEquals(listOf(QUALITY_STANDARD, QUALITY_HQ, QUALITY_SQ), track.qualities)
         assertEquals("media-mid", track.mediaMid)
         assertEquals(42L, track.numericId)
         assertEquals("Album", track.album)
@@ -73,12 +72,14 @@ class SearchParserTest {
         assertEquals("M500media-mid.mp3", qqStreamFileName(QUALITY_STANDARD, "media-mid"))
         assertEquals("M800media-mid.mp3", qqStreamFileName(QUALITY_HQ, "media-mid"))
         assertEquals("F000media-mid.flac", qqStreamFileName(QUALITY_SQ, "media-mid"))
+        assertEquals("F000media-mid.flac", qqStreamFileName("hires", "media-mid"))
     }
 
     @Test fun returnedFileNameWinsOverTheRequestedQualityLabel() {
         assertEquals(QUALITY_STANDARD, inferQqStreamQuality("C400media-mid.m4a?vkey=x", "purl"))
         assertEquals(QUALITY_HQ, inferQqStreamQuality("M800media-mid.mp3?vkey=x", "purl"))
         assertEquals(QUALITY_SQ, inferQqStreamQuality("F000media-mid.flac?vkey=x", "purl"))
+        assertEquals(com.ronan.qmusicwatch.model.QUALITY_LEGACY_UNKNOWN, inferQqStreamQuality("RS01media-mid.flac?vkey=x", "purl"))
         assertEquals(QUALITY_STANDARD, inferQqStreamQuality("https://cdn.example/audio", "opi128kurl"))
         assertEquals(QUALITY_STANDARD, inferQqStreamQuality("https://cdn.example/opaque", "purl"))
     }

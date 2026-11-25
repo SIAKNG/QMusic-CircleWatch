@@ -46,6 +46,10 @@ import com.ronan.qmusicwatch.download.cachedArtworkFile
 import com.ronan.qmusicwatch.model.PlaybackSnapshot
 import com.ronan.qmusicwatch.model.StreamData
 import com.ronan.qmusicwatch.model.belongsToAccount
+import com.ronan.qmusicwatch.model.qualityRank
+import com.ronan.qmusicwatch.network.lowerNetworkQuality
+import com.ronan.qmusicwatch.network.networkQualityMessage
+import com.ronan.qmusicwatch.network.SLOW_BUFFER_TIMEOUT_MS
 import com.ronan.qmusicwatch.network.trustedQMusicMediaUrl
 import com.ronan.qmusicwatch.network.withQqMusicMediaHeaders
 import kotlinx.coroutines.*
@@ -197,6 +201,8 @@ class PlaybackService : MediaLibraryService() {
     private val recoveryTracker = PlaybackRecoveryTracker()
     private var snapshotJob: Job? = null
     private var recoveryJob: Job? = null
+    private var slowNetworkJob: Job? = null
+    private var slowNetworkItem: Pair<Long, String>? = null
     private var applyingRecoveryGeneration: Long? = null
     @Volatile private var mediaItemGeneration = 0L
     private val previousCommand = SessionCommand(COMMAND_PREVIOUS, Bundle.EMPTY)
@@ -245,8 +251,8 @@ class PlaybackService : MediaLibraryService() {
             .setBufferDurationsMs(
                 20_000,
                 90_000,
-                2_500,
-                5_000,
+                1_000,
+                1_800,
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -259,6 +265,9 @@ class PlaybackService : MediaLibraryService() {
             .apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
             addListener(object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    monitorSlowBuffering()
+                }
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState != Player.STATE_ENDED) return
                     val stopAfterCurrent = (application as? QMusicApplication)?.playback?.consumeStopAfterCurrentAtEnd() == true
@@ -465,7 +474,7 @@ class PlaybackService : MediaLibraryService() {
                 val track = snapshot.track?.takeIf { it.id == request.mediaId }
                     ?: snapshot.queue.firstOrNull { it.id == request.mediaId }
                     ?: error("Playback snapshot no longer contains the failed track")
-                val stream = graph.api.refreshStream(track, snapshot.quality)
+                val stream = graph.api.playbackStream(track, snapshot.quality, refresh = true)
                 if (!failedItemStillCurrent(request)) {
                     clearRecoveryIfCurrent(request)
                     return
@@ -475,6 +484,7 @@ class PlaybackService : MediaLibraryService() {
                     clearRecoveryIfCurrent(request)
                     return
                 }
+                if (stream.networkFallback) reportNetworkQuality(track.id, stream)
                 if (!restoredItemStillCurrent(request, stream.url)) return
                 if (!clearRecoveryIfCurrent(request)) return
                 AppLog.write(
@@ -505,6 +515,7 @@ class PlaybackService : MediaLibraryService() {
             if (!recoveryTracker.expectReplacement(request, stream.url)) return@synchronized false
             applyingRecoveryGeneration = request.generation
             try {
+                if (request.playWhenReady) (application as QMusicApplication).playback.expectPlaybackStart(track.id)
                 player.setMediaItem(
                     playbackMediaItem(
                         track.id,
@@ -605,6 +616,82 @@ class PlaybackService : MediaLibraryService() {
         val current = player.currentMediaItem ?: return false
         return current.mediaId == request.mediaId &&
             current.localConfiguration?.uri?.toString().orEmpty() == streamUrl
+    }
+
+    private fun monitorSlowBuffering() {
+        val item = player.currentMediaItem
+        val uri = item?.localConfiguration?.uri?.toString().orEmpty()
+        if (item == null || !player.playWhenReady || player.playbackState != Player.STATE_BUFFERING ||
+            player.playerError != null || !uri.startsWith("https:")) {
+            slowNetworkJob?.cancel()
+            slowNetworkJob = null
+            slowNetworkItem = null
+            return
+        }
+        val key = mediaItemGeneration to uri
+        if (slowNetworkItem == key) return
+        slowNetworkJob?.cancel()
+        slowNetworkItem = key
+        val expected = CurrentPlayback(item.mediaId, uri, player.currentPosition.coerceAtLeast(0L), mediaItemGeneration)
+        slowNetworkJob = serviceScope.launch {
+            delay(SLOW_BUFFER_TIMEOUT_MS)
+            try {
+                downgradeBufferedTrack(expected)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                AppLog.write("PLAYER_SERVICE", "network-quality-failed type=${error.javaClass.simpleName}")
+            }
+        }
+    }
+
+    private fun stillBuffering(expected: CurrentPlayback): Boolean =
+        mediaItemGeneration == expected.generation && player.currentMediaItem?.mediaId == expected.mediaId &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == expected.uri &&
+            player.playbackState == Player.STATE_BUFFERING && player.playWhenReady && player.playerError == null
+
+    private suspend fun downgradeBufferedTrack(expected: CurrentPlayback) {
+        if (!withContext(Dispatchers.Main.immediate) { stillBuffering(expected) }) return
+        val graph = application as QMusicApplication
+        val owner = graph.vault.load()?.accountId ?: return
+        val snapshot = readPlaybackSnapshot(graph)
+        if (!snapshot.belongsToAccount(owner) || snapshot.track?.id != expected.mediaId || snapshot.streamUrl != expected.uri) return
+        val lower = lowerNetworkQuality(snapshot.quality) ?: return
+        val track = snapshot.track
+        val stream = graph.api.playbackStream(track, lower).copy(networkFallback = true)
+        if (qualityRank(stream.quality) >= qualityRank(snapshot.quality)) return
+        val position = withContext(Dispatchers.Main.immediate) {
+            if (!stillBuffering(expected)) return@withContext null
+            val currentPosition = player.currentPosition.coerceAtLeast(0L)
+            // Detach this job before prepare emits events for the replacement.
+            slowNetworkJob = null
+            slowNetworkItem = null
+            graph.playback.expectPlaybackStart(track.id)
+            player.setMediaItem(playbackMediaItem(track.id, stream.url, track.title, track.artists.joinToString(" / "), track.artworkUrl), currentPosition)
+            player.prepare()
+            player.play()
+            currentPosition
+        } ?: return
+        graph.settings.updatePlaybackSnapshot { value ->
+            val latest = runCatching { json.decodeFromString<PlaybackSnapshot>(value) }.getOrNull()
+            if (latest?.belongsToAccount(owner) == true && latest.track?.id == expected.mediaId && latest.streamUrl == expected.uri) {
+                json.encodeToString(latest.copy(positionMs = position, streamUrl = stream.url, streamExpiresAt = stream.expiresAt, quality = stream.quality))
+            } else value
+        }
+        withContext(Dispatchers.Main.immediate) {
+            if (player.currentMediaItem?.mediaId == track.id && player.currentMediaItem?.localConfiguration?.uri?.toString() == stream.url) {
+                reportNetworkQuality(track.id, stream)
+            }
+        }
+    }
+
+    private fun reportNetworkQuality(mediaId: String, stream: StreamData) {
+        ContextCompat.getMainExecutor(this).execute {
+            if (player.currentMediaItem?.mediaId == mediaId && player.currentMediaItem?.localConfiguration?.uri?.toString() == stream.url) {
+                (application as QMusicApplication).playback.onNetworkQualityChanged?.invoke(mediaId, stream)
+                android.widget.Toast.makeText(this, networkQualityMessage(stream.quality), android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun persistCurrentPlayback() {
@@ -785,7 +872,7 @@ class PlaybackService : MediaLibraryService() {
         val preferredQuality = graph.settings.quality.first()
         // Network and local lookups happen outside the snapshot lock; the commit
         // below re-reads the latest snapshot so a concurrent persist cannot be lost.
-        val stream = if (local == null) graph.api.stream(track, preferredQuality) else null
+        val stream = if (local == null) graph.api.playbackStream(track, preferredQuality) else null
         val uri = local?.let { android.net.Uri.fromFile(File(it.filePath)).toString() }
             ?: stream?.url ?: error("未获取到播放地址")
         val artwork = local?.let { cachedArtworkFile(it.filePath).takeIf(File::exists)?.let { cover -> android.net.Uri.fromFile(cover).toString() } } ?: track.artworkUrl
@@ -800,9 +887,11 @@ class PlaybackService : MediaLibraryService() {
         }
         if (!committed) return false
         withContext(Dispatchers.Main) {
+            graph.playback.expectPlaybackStart(track.id)
             player.setMediaItem(playbackMediaItem(track.id, uri, track.title, track.artists.joinToString(" / "), artwork), 0L)
             player.prepare()
             player.play()
+            if (stream?.networkFallback == true) reportNetworkQuality(track.id, stream)
         }
         graph.db.recent().upsert(RecentEntity(track.id, owner, track.title, track.artists.joinToString(" / "), track.album, track.artworkUrl, System.currentTimeMillis()))
         return true

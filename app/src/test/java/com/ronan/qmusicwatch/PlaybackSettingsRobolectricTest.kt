@@ -121,6 +121,17 @@ class PlaybackSettingsRobolectricTest {
     private fun work(id: String = track.id) = WorkManager.getInstance(app)
         .getWorkInfosForUniqueWork("download-test-owner-$id").get().first { !it.state.isFinished }
 
+    @Test fun loadingSurvivesADeferredControllerAndClearsWhenCancelled() {
+        app.playback.replaceStream(track.id, "https://dl.stream.qqmusic.qq.com/M500test.mp3", track.title, "Artist", "", 0, true)
+        assertTrue(app.playback.buffering.value)
+        app.playback.stopForTrackChange()
+        assertFalse(app.playback.buffering.value)
+        app.playback.expectPlaybackStart("next-song")
+        assertTrue(app.playback.buffering.value)
+        app.playback.pause()
+        assertFalse(app.playback.buffering.value)
+    }
+
     @Test fun savedDefaultsRemainCurrentWithoutIndividualUiCollectors() = runBlocking {
         val vm = viewModel()
         awaitCondition { vm.quality.value == "sq" && !vm.wifiOnlyDownload.value }
@@ -138,6 +149,42 @@ class PlaybackSettingsRobolectricTest {
         assertTrue(streamRequests.isNotEmpty())
         assertTrue("First stream request must use SQ", streamRequests.first().contains("F000media-mid.flac"))
         assertEquals("sq", vm.state.value.activeStreamQuality)
+    }
+
+    @Test fun pendingSelectionLoadsImmediatelyAndLatePreviousSongCannotReplaceIt() = runBlocking {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val http = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            val body = request.body?.let { Buffer().apply(it::writeTo).readUtf8() }.orEmpty()
+            if (body.contains("F000media-mid.flac")) {
+                entered.countDown()
+                check(release.await(8, java.util.concurrent.TimeUnit.SECONDS))
+            }
+            val file = if (body.contains("next-mid")) "F000next-mid.flac" else "F000media-mid.flac"
+            val data = """{"code":0,"req_0":{"code":0,"data":{"midurlinfo":[{"purl":"$file"}],"sip":["https://dl.stream.qqmusic.qq.com/"]}}}"""
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
+                .body(data.toResponseBody("application/json".toMediaType())).build()
+        }.build()
+        setFixtureField(app.api, "http", http)
+        val vm = viewModel()
+        try {
+            vm.requestPlay(track, allowSpeaker = true)
+            awaitCondition { entered.count == 0L }
+            assertEquals(track.id, vm.state.value.pendingPlaybackTrack?.id)
+            assertTrue(vm.state.value.playbackLoading)
+            val next = track.copy(id = "next-song", mediaMid = "next-mid")
+            vm.requestPlay(next, allowSpeaker = true)
+            awaitCondition { vm.state.value.currentTrack?.id == next.id }
+            release.countDown()
+            shadowOf(Looper.getMainLooper()).idle()
+            delay(80)
+            assertEquals(next.id, vm.state.value.currentTrack?.id)
+            assertNull(vm.state.value.pendingPlaybackTrack)
+            assertEquals("sq", vm.settings.value.quality)
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test fun changingTheDefaultAlsoRequestsSqForTheCurrentMinimalMetadataTrack() = runBlocking {

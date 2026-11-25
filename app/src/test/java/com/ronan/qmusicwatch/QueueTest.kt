@@ -93,7 +93,9 @@ class QueueTest {
 
     @Test fun profileCacheRefreshesOnlyWhenMissingWrongAccountOrExpired() {
         val now = 2_000_000_000_000L
-        val fresh = com.ronan.qmusicwatch.model.CachedUserProfile("1", com.ronan.qmusicwatch.model.UserProfile(displayName = "Ronan", isVip = true, vipExpireAt = now / 1000 + 86_400), now - 100L * 24 * 60 * 60 * 1000)
+        val fresh = com.ronan.qmusicwatch.model.CachedUserProfile("1", com.ronan.qmusicwatch.model.UserProfile(displayName = "Ronan", isVip = true, vipExpireAt = now / 1000 + 86_400), now - 1000, com.ronan.qmusicwatch.model.MEMBERSHIP_PROFILE_SCHEMA_VERSION)
+        assertEquals(true, profileCacheNeedsRefresh(fresh.copy(membershipSchemaVersion = 0), "1", now))
+        assertEquals(true, profileCacheNeedsRefresh(fresh.copy(updatedAt = now - 16 * 60_000L), "1", now))
         assertEquals(false, profileCacheNeedsRefresh(fresh, "1", now))
         assertEquals(true, profileCacheNeedsRefresh(fresh, "2", now))
         assertEquals(false, profileCacheNeedsRefresh(fresh.copy(profile = fresh.profile.copy(isVip = null)), "1", now))

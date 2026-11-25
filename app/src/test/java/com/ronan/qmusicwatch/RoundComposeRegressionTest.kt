@@ -2,6 +2,8 @@ package com.ronan.qmusicwatch
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -41,6 +43,39 @@ import java.io.File
 class RoundComposeRegressionTest {
     @get:Rule val compose = createComposeRule()
     private var previewView: View? = null
+
+    @Test fun outgoingDiagnosticAndLogActionsAreDisabledWithoutClickHandlers() {
+        compose.setContent {
+            QMusicWatchTheme(uiSize = "standard", pureBlack = true) {
+                Column {
+                    DisabledFeedbackRow("提交诊断", androidx.compose.material.icons.Icons.Default.BugReport)
+                    DisabledFeedbackRow("分享日志", androidx.compose.material.icons.Icons.AutoMirrored.Filled.Send)
+                }
+            }
+        }
+        for (title in listOf("提交诊断", "分享日志")) {
+            compose.onNodeWithTag("disabled-feedback-$title").assertIsNotEnabled().assertHasNoClickAction()
+        }
+    }
+
+    @Test fun miniPlayerKeepsLoadingRingUntilPlaybackIsReady() {
+        var loading by mutableStateOf(true)
+        compose.setContent {
+            QMusicWatchTheme(uiSize = "standard", pureBlack = true) {
+                WatchMiniPlayer(
+                    title = "测试歌曲", subtitle = "测试歌手", artwork = null,
+                    playing = false, progress = .3f, controller = remember { MiniPlayerController() },
+                    loading = loading, onPlayPause = {}, onOpenPlayer = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("mini-player-loading", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("加载中…", useUnmergedTree = true).assertExists()
+        compose.runOnIdle { loading = false }
+        compose.onNodeWithTag("mini-player-loading", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("mini-player-progress", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("测试歌手", useUnmergedTree = true).assertExists()
+    }
 
     @Test fun volumePanelSeparatesSliderDragFromLeftEdgeBack() {
         var level by mutableIntStateOf(5)

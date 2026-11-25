@@ -2,11 +2,19 @@ package com.ronan.qmusicwatch
 
 import com.ronan.qmusicwatch.network.ControlPlaneHttpException
 import com.ronan.qmusicwatch.network.qrPollRetryDelayMs
+import com.ronan.qmusicwatch.network.qrCreateRetryDelayMs
 import java.io.IOException
 import org.junit.Assert.*
 import org.junit.Test
 
 class QrPollRetryTest {
+    @Test fun initialQrRequestRetriesOnlyTransientErrorsAndHasABoundedAttemptCount() {
+        assertEquals(1000L, qrCreateRetryDelayMs(IOException("temporary"), 1))
+        assertEquals(2000L, qrCreateRetryDelayMs(IOException("temporary"), 2))
+        assertNull(qrCreateRetryDelayMs(IOException("offline"), 3))
+        assertNull(qrCreateRetryDelayMs(ControlPlaneHttpException(403, "DENIED", 0, "denied"), 1))
+        assertNull(qrCreateRetryDelayMs(ControlPlaneHttpException(503, "QR_LOGIN_DISABLED", 0, "disabled"), 1))
+    }
     @Test fun transientNetworkAndGatewayFailuresKeepTheExistingQr() {
         for (status in listOf(429, 500, 502, 503, 504)) {
             val error = ControlPlaneHttpException(status, "", 0, "temporary")

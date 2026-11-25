@@ -3,6 +3,10 @@ package com.ronan.qmusicwatch.network
 import com.ronan.qmusicwatch.BuildConfig
 import com.ronan.qmusicwatch.data.AppLog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -18,8 +22,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-private const val MAX_JSON_RESPONSE_BYTES = 256 * 1024
-internal const val MAX_DIAGNOSTIC_REQUEST_BYTES = 64 * 1024
+internal const val MAX_JSON_RESPONSE_BYTES = 1024 * 1024
 
 internal class ControlPlaneHttpException(
     val statusCode: Int,
@@ -37,6 +40,9 @@ internal fun qrPollRetryDelayMs(error: Throwable, failures: Int, expiresAt: Long
     val retryAfter = (error as? ControlPlaneHttpException)?.retryAfterMs?.coerceIn(0, 10_000) ?: 0L
     return maxOf(backoff, retryAfter).coerceAtMost(expiresAt - now)
 }
+
+internal fun qrCreateRetryDelayMs(error: Throwable, failures: Int): Long? =
+    if (failures in 1..2) qrPollRetryDelayMs(error, failures, Long.MAX_VALUE, 0) else null
 
 internal fun requireControlPlaneBaseUrl(value: String, allowCleartext: Boolean = false): HttpUrl {
     val url = value.toHttpUrlOrNull() ?: throw IllegalArgumentException("控制面地址无效")
@@ -103,24 +109,30 @@ class ControlPlaneClient(
         return get<RemoteFeatureConfig>(url).let { value ->
             value.copy(
                 features = value.features.filterKeys { it in SUPPORTED_FEATURES },
-                messages = value.messages.filterKeys { it in SUPPORTED_FEATURES }.mapValues { it.value.take(160) },
+                messages = value.messages.filterKeys { it in SUPPORTED_FEATURES }.mapValues { safeControlMessage(it.value) },
                 ttlSeconds = value.ttlSeconds.coerceIn(300, 86_400),
             )
         }
     }
 
-    suspend fun uploadDiagnostics(payload: DiagnosticUpload): DiagnosticReceipt {
-        val bytes = json.encodeToString(payload).encodeToByteArray()
-        require(bytes.size <= MAX_DIAGNOSTIC_REQUEST_BYTES) { "诊断信息超过 64 KB" }
-        return post(endpoint("api/qmusic-watch/diagnostics"), bytes)
-    }
-
     suspend fun createQrLogin(provider: String): ControlQrSession {
         require(provider in qrLoginProviders) { "不支持的二维码登录方式" }
-        return validateQrSession(
-            post(endpoint("api/qmusic-watch/auth/$provider/qr"), "{}".encodeToByteArray()),
-            provider,
-        )
+        var failures = 0
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            try {
+                return validateQrSession(
+                    post(endpoint("api/qmusic-watch/auth/$provider/qr"), "{}".encodeToByteArray()),
+                    provider,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val wait = qrCreateRetryDelayMs(error, ++failures) ?: throw error
+                AppLog.write("LOGIN", "create_qr_retry provider=$provider attempt=$failures type=${error.javaClass.simpleName}")
+                delay(wait)
+            }
+        }
     }
 
     suspend fun pollQrLogin(id: String, provider: String): ControlQrStatus {
@@ -159,12 +171,15 @@ class ControlPlaneClient(
                     response.code,
                     failure?.code.orEmpty(),
                     response.header("Retry-After")?.toLongOrNull()?.coerceIn(0, 60)?.times(1_000) ?: 0L,
-                    failure?.message?.take(160)?.takeIf(String::isNotBlank) ?: "控制面响应 ${response.code}",
+                    safeControlMessage(failure?.message.orEmpty()).takeIf(String::isNotBlank) ?: "控制面响应 ${response.code}",
                 )
             }
             val envelope = runCatching { json.decodeFromString<ControlApiResult<T>>(bytes.decodeToString()) }
                 .getOrElse { throw IllegalStateException("控制面响应格式无效") }
-            if (!envelope.ok) throw IllegalStateException(envelope.error?.message?.take(160).orEmpty().ifBlank { "控制面拒绝请求" })
+            if (!envelope.ok) throw ControlPlaneHttpException(
+                response.code, envelope.error?.code.orEmpty(), 0L,
+                safeControlMessage(envelope.error?.message.orEmpty()).ifBlank { "控制面拒绝请求" },
+            )
             envelope.data ?: throw IllegalStateException("控制面响应缺少数据")
         }
     }
@@ -187,6 +202,6 @@ class ControlPlaneClient(
     }
 
     companion object {
-        val SUPPORTED_FEATURES = setOf("qrLogin", "profile", "lyrics", "stream", "playlistWrites", "diagnostics")
+        val SUPPORTED_FEATURES = setOf("qrLogin", "profile", "lyrics", "stream", "playlistWrites")
     }
 }

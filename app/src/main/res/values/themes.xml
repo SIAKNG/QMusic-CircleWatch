@@ -1,5 +1,6 @@
 <resources>
-    <style name="Theme.QMusicWatch" parent="HeytapTheme">
+    <style name="Theme.QMusicWatch.Base" parent="HeytapTheme">
+        <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">#050505</item>
@@ -9,4 +10,5 @@
              would otherwise close the entire app from a secondary page. -->
         <item name="android:windowSwipeToDismiss">false</item>
     </style>
+    <style name="Theme.QMusicWatch" parent="Theme.QMusicWatch.Base" />
 </resources>

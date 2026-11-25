@@ -19,7 +19,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class PagedTracks(val items: List<Track>, val nextCursor: String? = null)
 @Serializable data class PagedCollections(val items: List<MusicCollection>, val nextCursor: String? = null)
 @Serializable data class LyricsData(val original: String, val translation: String? = null, val wordSync: String? = null)
-@Serializable data class StreamData(val url: String, val quality: String, val expiresAt: Long)
+@Serializable data class StreamData(val url: String, val quality: String, val expiresAt: Long, val networkFallback: Boolean = false)
 /**
  * A quality option is kept separate from [Track.qualities]: the latter is a
  * property of the file, while this model also describes the account's
@@ -69,7 +69,6 @@ fun PlaybackSnapshot.belongsToAccount(accountId: String?): Boolean = accountId !
 internal const val QUALITY_STANDARD = "standard"
 internal const val QUALITY_HQ = "hq"
 internal const val QUALITY_SQ = "sq"
-internal const val QUALITY_HI_RES = "hires"
 internal const val QUALITY_LEGACY_UNKNOWN = "legacy_unknown"
 
 internal data class AudioQualitySpec(
@@ -87,7 +86,6 @@ private val audioQualitySpecs = listOf(
     AudioQualitySpec(QUALITY_STANDARD, "标准音质", "标准", "MP3 · 128 kbps", 128, false, true, 0),
     AudioQualitySpec(QUALITY_HQ, "HQ · 高品质", "HQ", "MP3 · 320 kbps", 320, true, true, 1),
     AudioQualitySpec(QUALITY_SQ, "SQ · 无损品质", "SQ", "FLAC · 无损", 0, true, true, 2),
-    AudioQualitySpec(QUALITY_HI_RES, "Hi-Res · 高解析无损", "Hi-Res", "24-bit 无损", 0, true, false, 3),
 )
 
 internal fun allAudioQualitySpecs(): List<AudioQualitySpec> = audioQualitySpecs
@@ -129,7 +127,7 @@ internal fun UserProfile.isVipActive(nowMillis: Long = System.currentTimeMillis(
 internal fun normalizeQualityId(value: String?): String = when (value?.trim()?.lowercase()) {
     "320", "320k", "hq", "high", "high_quality" -> QUALITY_HQ
     "flac", "lossless", "sq", "lossless_quality" -> QUALITY_SQ
-    "hires", "hi-res", "flac24bit", "24bit", "hr" -> QUALITY_HI_RES
+    "hires", "hi-res", "flac24bit", "24bit", "hr" -> QUALITY_SQ
     else -> QUALITY_STANDARD
 }
 
@@ -210,7 +208,11 @@ internal fun normalizeUserProfile(profile: UserProfile): UserProfile {
     return if (expiry == profile.vipExpireAt) profile else profile.copy(vipExpireAt = expiry)
 }
 
-@Serializable data class CachedUserProfile(val accountId: String, val profile: UserProfile, val updatedAt: Long)
+internal const val MEMBERSHIP_PROFILE_SCHEMA_VERSION = 3
+@Serializable data class CachedUserProfile(
+    val accountId: String, val profile: UserProfile, val updatedAt: Long,
+    val membershipSchemaVersion: Int = 0,
+)
 internal fun normalizeCachedUserProfile(value: CachedUserProfile): CachedUserProfile =
     value.copy(profile = normalizeUserProfile(value.profile))
 @Serializable data class CachedAccountSnapshot(

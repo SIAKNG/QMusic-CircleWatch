@@ -92,6 +92,18 @@ class ControlPlaneTest {
         assertEquals("maintenance", nextStartupAnnouncement(visible, emptySet(), emptySet())?.id)
     }
 
+    @Test fun contactDetailsAreRemovedFromFreshAndCachedDisplayContent() {
+        val contacts = listOf("邮箱 old.author@example.com", "QQ：12345678", "QQ号：12345678", "QQ 12345678", "https://qm.qq.com/test", "微信号 author123", "加入共享群", "mailto:author@example.com", "https://qun.qq.com/example")
+        for (contact in contacts) {
+            assertTrue(containsUpstreamContact(contact))
+            assertEquals("", safeControlMessage(contact))
+            val cached = CachedControlPlane(announcements = listOf(ControlAnnouncement("contact", content = contact)))
+            assertTrue(visibleAnnouncements(cached.announcements, 5, 10_000).isEmpty())
+        }
+        assertEquals("微信扫码登录暂时维护", safeControlMessage("微信扫码登录暂时维护"))
+        assertFalse(containsUpstreamContact("QQ 音乐服务维护"))
+    }
+
     @Test fun recurringAnnouncementMayAppearAgainOnANewAppSession() {
         val item = ControlAnnouncement("recurring", onceOnly = false)
         assertEquals(item, nextStartupAnnouncement(listOf(item), setOf("recurring"), emptySet()))

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +70,7 @@ fun WatchMiniPlayer(
     modifier: Modifier = Modifier,
     accent: Color = WatchAccent,
     progressProvider: (() -> Float)? = null,
+    loading: Boolean = false,
     onPlayPause: () -> Unit,
     onOpenPlayer: () -> Unit,
 ) {
@@ -122,7 +124,7 @@ fun WatchMiniPlayer(
                             val marquee = if (collapsed) Modifier else Modifier.basicMarquee(iterations = Int.MAX_VALUE)
                             Text(title, marquee, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 fontSize = if (round) 13.sp else dimensions.bodySp.sp, fontWeight = FontWeight.SemiBold)
-                            Text(subtitle, marquee, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            Text(if (loading) "加载中…" else subtitle, marquee, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = WatchTextSecondary, fontSize = if (round) 10.sp else dimensions.secondarySp.sp)
                         }
                         WatchIconButton(
@@ -145,14 +147,14 @@ fun WatchMiniPlayer(
                         val side = lerp(expandedArtwork, 44.dp, morph.value.coerceIn(0f, 1f)).roundToPx()
                         val child = measurable.measure(Constraints.fixed(side, side))
                         layout(side, side) { child.place(0, 0) }
-                    }.testTag("mini-player-artwork"), accent)
+                    }.testTag("mini-player-artwork"), accent, loading)
             }
         }
     }
 }
 
 @Composable
-private fun AlbumProgressRing(artwork: Any?, progress: () -> Float, modifier: Modifier, accent: Color) {
+private fun AlbumProgressRing(artwork: Any?, progress: () -> Float, modifier: Modifier, accent: Color, loading: Boolean) {
     val fallback = painterResource(R.drawable.ic_launcher)
     Box(modifier, contentAlignment = Alignment.Center) {
         AsyncImage(
@@ -160,7 +162,10 @@ private fun AlbumProgressRing(artwork: Any?, progress: () -> Float, modifier: Mo
             modifier = Modifier.fillMaxSize().padding(4.dp).clip(CircleShape).background(WatchSurface),
             contentScale = ContentScale.Crop, placeholder = fallback, fallback = fallback, error = fallback,
         )
-        Canvas(Modifier.fillMaxSize().testTag("mini-player-progress")
+        if (loading) CircularProgressIndicator(
+            Modifier.fillMaxSize().testTag("mini-player-loading"),
+            color = accent, strokeWidth = 2.dp, trackColor = WatchDivider,
+        ) else Canvas(Modifier.fillMaxSize().testTag("mini-player-progress")
             .semantics { progressBarRangeInfo = ProgressBarRangeInfo(progress().takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f, 0f..1f) }) {
             val fraction = progress().takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
             val stroke = 2.dp.toPx()

@@ -85,6 +85,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
@@ -288,12 +292,21 @@ internal fun lyricProgressBand(progress: Float, feather: Float = .018f): Pair<Fl
 }
 private fun loginProviderName(provider: String) = if (provider == "wechat") "微信" else "QQ"
 private fun accountLabel(provider: String, accountId: String?) = if (provider == "wechat") "微信账号已绑定" else "QQ号 ${accountId.orEmpty()}"
-private fun vipSummary(profile: UserProfile?, loaded: Boolean, error: String?): String = when {
+internal fun vipSummary(profile: UserProfile?, loaded: Boolean, error: String?): String = when {
     !loaded -> "正在读取会员状态"
     error != null && profile == null -> error
     profile?.isVipActive() == true -> buildString {
-        append(profile.vipName.ifBlank { "会员有效" })
-        normalizeEpochSeconds(profile.vipExpireAt)?.let { expiry -> append(" · 到期 "); append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.CHINA).format(java.util.Date(expiry * 1000))) }
+        append(when {
+            profile.vipName.contains("听书") -> profile.vipName
+            profile.vipType == "svip" || profile.vipLevel >= 3 -> "超级会员SVIP"
+            profile.vipType in setOf("green_diamond", "vip") || profile.vipName.contains("绿钻") -> "豪华绿钻VIP"
+            profile.vipName.contains("SVIP", true) || profile.vipName.contains("超级") -> "超级会员SVIP"
+            else -> "豪华绿钻VIP"
+        })
+        normalizeEpochSeconds(profile.vipExpireAt)?.let { expiry ->
+            append("至")
+            append(java.text.SimpleDateFormat("yyyy.MM.dd", java.util.Locale.CHINA).format(java.util.Date(expiry * 1000)))
+        }
     }
     profile?.isVip == false -> "未检测到会员播放权益"
     else -> "暂无法确认会员权益，点检查登录重试"
@@ -433,7 +446,7 @@ class MainActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
-        setContent { QMusicApp() }
+        setContent { QMusicLaunch() }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -453,6 +466,36 @@ class MainActivity : ComponentActivity() {
     private fun hideStatusBar() = WindowCompat.getInsetsController(window, window.decorView).apply {
         hide(WindowInsetsCompat.Type.systemBars())
         systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+}
+
+@Composable private fun QMusicLaunch() {
+    var showLogo by rememberSaveable { mutableStateOf(true) }
+    val logoScale = remember { androidx.compose.animation.core.Animatable(.88f) }
+    LaunchedEffect(Unit) {
+        if (showLogo) {
+            logoScale.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+            kotlinx.coroutines.delay(220)
+            showLogo = false
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
+        QMusicApp()
+        AnimatedVisibility(showLogo, exit = fadeOut(tween(180))) {
+            Box(
+                Modifier.fillMaxSize().background(Color.Black).clickable(onClick = {}),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painterResource(R.drawable.qmusic_circlewatch_mark),
+                    contentDescription = "QMusic-CircleWatch",
+                    modifier = Modifier.size(100.dp).graphicsLayer {
+                        scaleX = logoScale.value
+                        scaleY = logoScale.value
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -645,9 +688,10 @@ class MainActivity : ComponentActivity() {
             watchDestination("downloads") { DownloadScreen(downloads, vm) { nav.popBackStack() } }
             watchDestination("player") {
                 val pageState by vm.state.collectAsStateWithLifecycle()
+                val displayedTrack = pageState.pendingPlaybackTrack ?: pageState.currentTrack
                 PlayerScreen(
-                    track = pageState.currentTrack,
-                    lyrics = pageState.lyrics,
+                    track = displayedTrack,
+                    lyrics = if (pageState.pendingPlaybackTrack == null) pageState.lyrics else emptyList(),
                     lyricsLoading = pageState.lyricsLoading,
                     lyricsError = pageState.lyricsError,
                     vm = vm,
@@ -666,7 +710,7 @@ class MainActivity : ComponentActivity() {
                     profile = pageState.profile,
                     profileLoaded = pageState.profileLoaded,
                     playlists = writablePlaylists(pageState.library?.playlists.orEmpty()),
-                    liked = pageState.library?.liked?.any { it.id == pageState.currentTrack?.id } == true,
+                    liked = pageState.library?.liked?.any { it.id == displayedTrack?.id } == true,
                     openQueue = { nav.navigate("queue") },
                     showVolumePanel = playerVolumePanel,
                     onVolumePanelChange = { playerVolumePanel = it },
@@ -876,7 +920,7 @@ class MainActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(dimensions.itemSpacing),
             ) {
                 item {
-                    Row(Modifier.fillMaxWidth().height(54.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 54.dp), verticalAlignment = Alignment.CenterVertically) {
                         AccountAvatar(state.profile?.avatarUrl, vm.loginProvider, vm.accountId, 42.dp)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
@@ -895,8 +939,8 @@ class MainActivity : ComponentActivity() {
                                 if (vm.signedIn) vipSummary(state.profile, state.profileLoaded, state.profileError) else "登录后同步音乐库",
                                 color = if (state.profile?.isVipActive() == true) WatchVip else WatchTextSecondary,
                                 fontSize = 10.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                softWrap = true,
+                                overflow = TextOverflow.Visible,
                             )
                         }
                     }
@@ -1327,6 +1371,8 @@ private fun decodeServerQrImage(value: String) = runCatching {
         )
         Text("尚未播放", fontSize = dimensions.bodySp.sp)
     }
+    val engineLoading by vm.playbackLoading.collectAsStateWithLifecycle()
+    val loading = playbackLoading || engineLoading
     var position by remember(track.id) { mutableLongStateOf(0L) }
     var duration by remember(track.id) { mutableLongStateOf(0L) }
     var playing by remember(track.id) { mutableStateOf(false) }
@@ -1646,14 +1692,16 @@ private fun decodeServerQrImage(value: String) = runCatching {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 WatchIconButton(Icons.Default.SkipPrevious, "上一首", buttonSize = 40.dp, onClick = vm::skipPrevious)
                                 Box(contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
+                                    if (loading) CircularProgressIndicator(
+                                        modifier = Modifier.size(60.dp), color = playerAccent,
+                                        strokeWidth = 2.dp, trackColor = WatchDivider,
+                                    ) else CircularProgressIndicator(
                                         progress = { (position.toFloat() / duration.coerceAtLeast(1L)).coerceIn(0f, 1f) },
                                         modifier = Modifier.size(60.dp), color = playerAccent,
                                         strokeWidth = 2.dp, trackColor = WatchDivider)
                                     WatchIconButton(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         if (playing) "暂停" else "播放", buttonSize = 52.dp, containerColor = playerAccent, tint = Color.Black,
                                         onClick = { if (playing) vm.pausePlayback() else vm.resumePlayback() })
-                                    if (playbackLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                                 }
                                 WatchIconButton(Icons.Default.SkipNext, "下一首", buttonSize = 40.dp, onClick = vm::skipNext)
                             }
@@ -1733,7 +1781,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
                         Spacer(Modifier.height(if (compactPlayer) 9.dp else 11.dp))
                         ExpressivePlayerControls(
                             playing = playing,
-                            loading = playbackLoading,
+                            loading = loading,
                             progress = sliderFraction,
                             accent = playerAccent,
                             animateShape = !lowPowerPlayer,
@@ -1783,7 +1831,7 @@ private fun decodeServerQrImage(value: String) = runCatching {
             }
         }
         AnimatedVisibility(
-            visible = pager.currentPage == 0 || (!locked && lyricChromeVisible),
+            visible = loading || pager.currentPage == 0 || (!locked && lyricChromeVisible),
             modifier = Modifier.align(Alignment.TopStart),
             enter = fadeIn(tween(140)),
             exit = fadeOut(tween(180)),
@@ -1816,8 +1864,14 @@ private fun decodeServerQrImage(value: String) = runCatching {
             enter = fadeIn(tween(140)),
             exit = fadeOut(tween(180)),
         ) {
-            Row(Modifier.padding(bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                repeat(2) { page -> Box(Modifier.size(if (pager.currentPage == page) 6.dp else 4.dp).background(if (pager.currentPage == page) playerAccent else WatchDivider, RoundedCornerShape(50))) }
+            Column(Modifier.padding(bottom = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (loading) {
+                    Text("加载中…", fontSize = 10.sp, color = WatchTextSecondary)
+                    Spacer(Modifier.height(4.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    repeat(2) { page -> Box(Modifier.size(if (pager.currentPage == page) 6.dp else 4.dp).background(if (pager.currentPage == page) playerAccent else WatchDivider, RoundedCornerShape(50))) }
+                }
             }
         }
         if (locked) {
@@ -2181,13 +2235,20 @@ private fun decodeServerQrImage(value: String) = runCatching {
     onClick: () -> Unit,
 ) = SettingsValueRow(title, subtitle.orEmpty(), icon, tint, onClick)
 
+@Composable internal fun DisabledFeedbackRow(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) = WatchListRow(
+    title = title,
+    subtitle = "暂不可用",
+    modifier = Modifier.alpha(.38f).testTag("disabled-feedback-$title").semantics(mergeDescendants = true) { disabled() },
+    leading = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(18.dp), tint = WatchTextSecondary) } },
+)
+
 @Composable private fun SettingsAccountRow(state: AppUiState, vm: AppViewModel) {
     Surface(
-        modifier = Modifier.fillMaxWidth().height(58.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 58.dp),
         shape = CircleShape,
         color = WatchSurface,
     ) {
-        Row(Modifier.fillMaxSize().padding(horizontal = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             AccountAvatar(state.profile?.avatarUrl, vm.loginProvider, vm.accountId, 42.dp)
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
@@ -2203,8 +2264,8 @@ private fun decodeServerQrImage(value: String) = runCatching {
                     vipSummary(state.profile, state.profileLoaded, state.profileError),
                     color = if (state.profile?.isVipActive() == true) WatchVip else WatchTextSecondary,
                     fontSize = 9.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    softWrap = true,
+                    overflow = TextOverflow.Visible,
                 )
             }
         }
@@ -2387,7 +2448,6 @@ private fun decodeServerQrImage(value: String) = runCatching {
 
 @Composable internal fun NetworkSettingsScreen(vm: AppViewModel, dailyCount: Int, state: AppUiState, onAnnouncements: () -> Unit, onRelogin: () -> Unit, onBack: () -> Unit) {
     val context = LocalContext.current
-    var confirmUpload by remember { mutableStateOf(false) }
     var showDailyDialog by rememberSaveable { mutableStateOf(false) }
     val saveLog = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> uri?.let { runCatching { AppLog.copyTo(context, it) } } }
     WatchLazyColumn(Modifier.fillMaxSize().padding(horizontal = LocalWatchDimensions.current.screenPadding), contentPadding = PaddingValues(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp), pinnedTitle = "内容与网络", onPinnedBack = onBack) {
@@ -2413,31 +2473,15 @@ private fun decodeServerQrImage(value: String) = runCatching {
         item { SettingsActionRow("公告", "${state.announcements.size} 条可用公告", Icons.Default.Campaign, onClick = onAnnouncements) }
         item { SettingsSectionLabel("诊断与日志") }
         state.diagnostic?.let { diagnostic -> item { WatchListRow("最近诊断", diagnostic, leading = { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(Icons.Default.MonitorHeart, null, Modifier.size(18.dp), tint = if (diagnostic.startsWith("诊断失败")) MaterialTheme.colorScheme.error else WatchAccent) } }) } }
-        item { SettingsActionRow("完整诊断", null, Icons.Default.HealthAndSafety, onClick = vm::diagnose) }
-        item {
-            val uploading = state.diagnosticUploadState is DiagnosticUploadState.Uploading
-            SettingsActionRow(if (uploading) "正在提交诊断" else "提交诊断", null, Icons.Default.BugReport, tint = if (uploading || !vm.featureEnabled("diagnostics")) WatchTextSecondary else WatchAccent) {
-                if (!uploading && vm.featureEnabled("diagnostics")) confirmUpload = true
-            }
-        }
-        when (val upload = state.diagnosticUploadState) {
-            is DiagnosticUploadState.Success -> item { WatchListRow("诊断已提交", upload.requestId.takeIf(String::isNotBlank)?.let { "请求编号 $it" }) }
-            is DiagnosticUploadState.Error -> item { WatchListRow("诊断提交失败", upload.message) }
-            else -> Unit
-        }
-        item { SettingsActionRow("分享日志", null, Icons.Default.Share) { context.startActivity(Intent.createChooser(AppLog.shareIntent(context), "分享日志")) } }
+        item { SettingsActionRow("登录与播放诊断", "检查账号、歌单与播放连接", Icons.Default.HealthAndSafety, onClick = vm::diagnose) }
+        item { DisabledFeedbackRow("提交诊断", Icons.Default.BugReport) }
+        item { DisabledFeedbackRow("分享日志", Icons.AutoMirrored.Filled.Send) }
         item { SettingsActionRow("保存日志", null, Icons.Default.Save) { saveLog.launch("QMusic-CircleWatch-${BuildConfig.VERSION_NAME}.log") } }
         item { SettingsActionRow("清空日志", null, Icons.Default.DeleteSweep, tint = WatchTextSecondary, onClick = AppLog::clear) }
         if (vm.signedIn) item { SettingsActionRow("退出登录", null, Icons.AutoMirrored.Filled.Logout, tint = MaterialTheme.colorScheme.error, onClick = vm::logout) }
     }
     if (showDailyDialog) SettingsSelectionSheet("每日推荐显示数量", dailyCount.toString(), listOf("5" to "5 首", "10" to "10 首"), { vm.setDailyCount(it.toInt()); showDailyDialog = false }) { showDailyDialog = false }
-    if (confirmUpload) WatchDialog(
-        onDismissRequest = { confirmUpload = false },
-        title = { Text("提交诊断？") },
-        text = { Text("仅上传版本、设备型号和经过二次脱敏的日志片段，不包含账号、Cookie、二维码、搜索词或播放地址。") },
-        confirmButton = { WatchConfirmButton({ confirmUpload = false; vm.submitDiagnostics() }) { Text("提交") } },
-        dismissButton = { WatchCancelButton({ confirmUpload = false }) { Text("取消") } },
-    )
+
 }
 
 @Composable internal fun AnnouncementsScreen(items: List<ControlAnnouncement>, seen: Set<String>, vm: AppViewModel, onBack: () -> Unit) {
@@ -2897,6 +2941,7 @@ private fun formatFileSize(bytes: Long): String = when {
     modifier: Modifier = Modifier, open: () -> Unit,
 ) {
     if (track == null) return
+    val loading by vm.playbackLoading.collectAsStateWithLifecycle()
     val artworkRequest = rememberArtworkImageRequest(track.artworkUrl, 96)
     val cachedArtworkAccent by vm.artworkAccent.collectAsStateWithLifecycle()
     val accent = rememberArtworkAccent(track.artworkUrl, cachedArtworkAccent) { url, argb ->
@@ -2919,6 +2964,7 @@ private fun formatFileSize(bytes: Long): String = when {
     WatchMiniPlayer(
         title = track.title, subtitle = track.artists.joinToString(" / "), artwork = artworkRequest,
         playing = playing, progress = 0f, progressProvider = progressProvider,
+        loading = loading,
         controller = controller, modifier = modifier, accent = accent,
         onPlayPause = { if (playing) vm.pausePlayback() else vm.resumePlayback() },
         onOpenPlayer = open,

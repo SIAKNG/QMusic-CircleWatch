@@ -2,7 +2,6 @@ package com.ronan.qmusicwatch
 
 import com.ronan.qmusicwatch.model.Track
 import com.ronan.qmusicwatch.model.UserProfile
-import com.ronan.qmusicwatch.model.QUALITY_HI_RES
 import com.ronan.qmusicwatch.model.QUALITY_HQ
 import com.ronan.qmusicwatch.model.QUALITY_SQ
 import com.ronan.qmusicwatch.model.QUALITY_STANDARD
@@ -16,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MembershipQualityTest {
-    private val track = Track("mid", "Song", qualities = listOf(QUALITY_STANDARD, QUALITY_HQ, QUALITY_SQ, QUALITY_HI_RES))
+    private val track = Track("mid", "Song", qualities = listOf(QUALITY_STANDARD, QUALITY_HQ, QUALITY_SQ))
 
     @Test fun membershipProfileNeverHardBlocksAnUpstreamQualityCheck() {
         val profile = UserProfile(isVip = false, vipName = "普通账号")
@@ -34,18 +33,17 @@ class MembershipQualityTest {
         assertEquals(QUALITY_SQ, resolveQuality(QUALITY_SQ, track, profile, 1_700_000_000_000L).resolved)
     }
 
-    @Test fun unverifiedHiResFallsBackWithoutUsingAnAmbiguousFilePrefix() {
-        val profile = UserProfile(isVip = true, vipExpireAt = 1_800_000_000L, vipName = "超级会员（SVIP）")
-        val resolution = resolveQuality(QUALITY_HI_RES, track, profile, nowMillis = 1_700_000_000_000L)
-        assertEquals(QUALITY_SQ, resolution.resolved)
-        assertFalse(resolution.requestedAvailable)
-        assertEquals(listOf(QUALITY_SQ, QUALITY_HQ, QUALITY_STANDARD), qualityFallbackOrder(QUALITY_HI_RES))
+    @Test fun removedTierMigratesToSqWithoutAppearingInThePicker() {
+        val options = qualityAvailability(track, UserProfile(isVip = true))
+        assertEquals(listOf(QUALITY_STANDARD, QUALITY_HQ, QUALITY_SQ), options.map { it.id })
+        assertEquals(QUALITY_SQ, resolveQuality("hires", track, null).resolved)
+        assertEquals(listOf(QUALITY_SQ, QUALITY_HQ, QUALITY_STANDARD), qualityFallbackOrder("hires"))
     }
 
     @Test fun legacyQualityValuesMigrateToOfficialTierIds() {
         assertEquals(QUALITY_STANDARD, normalizeQualityId("128"))
         assertEquals(QUALITY_HQ, normalizeQualityId("320k"))
         assertEquals(QUALITY_SQ, normalizeQualityId("flac"))
-        assertEquals(QUALITY_HI_RES, normalizeQualityId("flac24bit"))
+        assertEquals(QUALITY_SQ, normalizeQualityId("flac24bit"))
     }
 }

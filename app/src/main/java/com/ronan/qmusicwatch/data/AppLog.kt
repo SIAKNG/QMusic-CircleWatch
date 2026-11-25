@@ -1,10 +1,8 @@
 package com.ronan.qmusicwatch.data
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import androidx.core.content.FileProvider
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,14 +66,6 @@ object AppLog {
         return runCatching {
             executor.submit(Callable { readExcerpt(target, maxBytes) }).get(3, TimeUnit.SECONDS)
         }.getOrDefault("")
-    }
-
-    fun shareIntent(context: Context): Intent {
-        val target = file ?: return Intent(Intent.ACTION_SEND).setType("text/plain")
-        flush()
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", target)
-        return Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
     fun copyTo(context: Context, uri: Uri) {

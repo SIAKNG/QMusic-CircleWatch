@@ -65,8 +65,8 @@ android {
         applicationId = if (oppoMediaCompat) "com.tencent.qqmusicwatch" else "com.qmusicwatch.round"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 5
+        versionName = "1.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["usesCleartext"] = "false"
         buildConfigField("boolean", "QMUSIC_UPDATES_ENABLED", "false")
@@ -81,6 +81,9 @@ android {
             keyAlias = releaseKeyAlias
             keyPassword = releaseKeyPassword
             storeType = releaseStoreType
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
     buildTypes {

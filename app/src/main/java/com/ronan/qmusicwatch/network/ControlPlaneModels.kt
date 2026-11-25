@@ -71,18 +71,6 @@ data class CachedControlPlane(
 )
 
 @Serializable
-data class DiagnosticUpload(
-    val version: String,
-    val versionCode: Int,
-    val sdk: Int,
-    val manufacturer: String,
-    val model: String,
-    val report: String,
-)
-
-@Serializable data class DiagnosticReceipt(val requestId: String = "", val accepted: Boolean = true)
-
-@Serializable
 data class ControlQrSession(
     val id: String = "",
     val provider: String = "",
@@ -132,13 +120,6 @@ sealed interface UpdateUiState {
     data class Error(val message: String, val release: ControlUpdate? = null) : UpdateUiState
 }
 
-sealed interface DiagnosticUploadState {
-    data object Idle : DiagnosticUploadState
-    data object Uploading : DiagnosticUploadState
-    data class Success(val requestId: String) : DiagnosticUploadState
-    data class Error(val message: String) : DiagnosticUploadState
-}
-
 internal const val MIN_UPDATE_APK_BYTES = 128L * 1024
 internal const val MAX_UPDATE_APK_BYTES = 200L * 1024 * 1024
 
@@ -163,10 +144,13 @@ internal fun validateUpdateContract(
     return release
 }
 
-private val qqGroupPromotion = Regex(
-    """交流群|共享群|群号|加群|QQ\s*群|(?:qun|jq)\.qq\.com|mqqapi://[^\s]*group""",
+private val upstreamContact = Regex(
+    """交流群|共享群|群号|加群|QQ\s*群|(?:qun|jq|qm|wpa)\.qq\.com|mqqapi://[^\s]*group|mqqwpa:|mailto:|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|QQ\s*(?:号\s*)?[:：]?\s*\d{5,13}|微信(?:号|群|联系)|(?:联系|添加|咨询).{0,10}(?:QQ|微信|客服)|weixin://""",
     RegexOption.IGNORE_CASE,
 )
+
+internal fun containsUpstreamContact(value: String): Boolean = upstreamContact.containsMatchIn(value)
+internal fun safeControlMessage(value: String): String = if (containsUpstreamContact(value)) "" else value.take(160)
 
 internal fun visibleAnnouncements(
     items: List<ControlAnnouncement>,
@@ -174,7 +158,7 @@ internal fun visibleAnnouncements(
     now: Long,
 ): List<ControlAnnouncement> = items.filter { item ->
     item.enabled && item.id.isNotBlank() && item.id.length <= 100 && item.severity in setOf("info", "warning", "critical") &&
-        !qqGroupPromotion.containsMatchIn(item.title + "\n" + item.content) &&
+        !containsUpstreamContact(item.title + "\n" + item.content) &&
         (item.startsAt <= 0 || item.startsAt <= now) &&
         (item.endsAt <= 0 || item.endsAt >= now) &&
         (item.minVersionCode <= 0 || item.minVersionCode <= versionCode) &&

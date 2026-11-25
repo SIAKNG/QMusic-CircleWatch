@@ -198,7 +198,6 @@ internal fun parseQqQualityIds(item: JsonObject, file: JsonObject = item["file"]
         if (item.hasPositiveNumber("size128", "size_128mp3") || file.hasPositiveNumber("size128", "size_128mp3")) add(QUALITY_STANDARD)
         if (item.hasPositiveNumber("size320", "size_320mp3") || file.hasPositiveNumber("size320", "size_320mp3")) add(QUALITY_HQ)
         if (item.hasPositiveNumber("sizeflac", "size_flac") || file.hasPositiveNumber("sizeflac", "size_flac")) add(QUALITY_SQ)
-        if (item.hasPositiveNumber("sizehires", "size_hires") || file.hasPositiveNumber("sizehires", "size_hires")) add(QUALITY_HI_RES)
     }.ifEmpty { listOf(QUALITY_STANDARD) }
 
 internal fun qqStreamFileName(quality: String, mediaMid: String): String {
@@ -206,7 +205,6 @@ internal fun qqStreamFileName(quality: String, mediaMid: String): String {
     val (prefix, extension) = when (normalizeQualityId(quality)) {
         QUALITY_SQ -> "F000" to "flac"
         QUALITY_HQ -> "M800" to "mp3"
-        QUALITY_HI_RES -> throw IllegalArgumentException("Hi-Res 资源格式尚未完成兼容验证")
         else -> "M500" to "mp3"
     }
     return "$prefix$mediaMid.$extension"
@@ -217,6 +215,7 @@ internal data class QqStreamPath(val value: String, val sourceKey: String)
 internal fun inferQqStreamQuality(path: String, sourceKey: String): String {
     val upper = path.uppercase()
     return when {
+        "RS01" in upper -> QUALITY_LEGACY_UNKNOWN
         "F000" in upper -> QUALITY_SQ
         "M800" in upper -> QUALITY_HQ
         "M500" in upper || "C400" in upper || sourceKey in setOf("opi128kurl", "opi96kurl") -> QUALITY_STANDARD
@@ -389,18 +388,22 @@ private data class MembershipEvidence(
 
 private val membershipStatusKeys = arrayOf(
     "isVip", "is_vip", "isSVip", "is_svip", "isSvip", "vip", "svip",
-    "vipFlag", "vip_flag", "svipFlag", "svip_flag", "svip_status", "vipStatus",
-    "HugeVip", "LMFlag",
+    "iVipFlag", "vipFlag", "vip_flag", "svipFlag", "svip_flag", "svip_status", "vipStatus",
 )
+private data class MembershipProduct(
+    val flags: Array<String>, val expiries: Array<String>, val label: String,
+    val type: String, val rank: Int,
+)
+
 private val membershipTypeKeys = arrayOf(
     "vip_type", "vipType", "viptype", "svip_type", "svipType",
-    "music_vip_level", "green_vip_level", "luxury_vip_level", "super_vip_level",
 )
 private val membershipExpiryKeys = arrayOf(
-    "HugeVipEnd", "LMEnd", "vipEndTime", "vip_end_time", "vip_endtime", "svipEndTime", "svip_end_time",
+    "sOverDateTime", "vipEndTime", "vip_end_time", "vip_endtime", "svipEndTime", "svip_end_time",
     "vipExpireTime", "vip_expire_time", "vipExpireDate", "vip_expire_date",
     "expireTime", "expire_time", "expireDate", "expire_date", "endTime", "end_time", "endDate",
     "expiry", "expiration", "expire",
+    "overdate", "overDate", "over_date", "vipOverDate", "vip_overdate",
 )
 
 private fun membershipBoolean(value: String): Boolean? = when (value.trim().lowercase()) {
@@ -409,17 +412,17 @@ private fun membershipBoolean(value: String): Boolean? = when (value.trim().lowe
     else -> value.trim().toLongOrNull()?.let { it > 0 }
 }
 
-private fun membershipTypeFrom(rank: Int, path: String, label: String): String = when {
-    rank >= 3 || path.contains("svip", true) || label.contains("超级") || label.contains("SVIP", true) -> "svip"
-    rank == 2 || path.contains("green", true) || path.contains("luxury", true) || label.contains("绿钻") -> "green_diamond"
+private fun membershipTypeFrom(rank: Int, label: String): String = when {
+    rank >= 3 -> "svip"
+    rank == 2 -> "green_diamond"
     rank == 1 || label.isNotBlank() -> "vip"
     else -> ""
 }
 
-private fun rankForMembership(path: String, label: String, typeCode: Int?, superFlag: Boolean): Int = when {
-    superFlag || path.contains("svip", true) || label.contains("超级") || label.contains("SVIP", true) -> 3
-    typeCode != null && typeCode >= 11 -> 3
-    path.contains("green", true) || path.contains("luxury", true) || label.contains("绿钻") -> 2
+private fun rankForMembership(path: String, label: String, typeCode: Int?, superFlag: Boolean?): Int = when {
+    superFlag == true -> 3
+    superFlag != false && (label.contains("超级") || label.contains("SVIP", true)) -> 3
+    path.contains("green", true) || path.contains("luxury", true) || label.contains("绿钻") || label.contains("green", true) -> 2
     typeCode != null && typeCode >= 2 -> 2
     label.contains("会员") || label.contains("vip", true) || typeCode == 1 -> 1
     else -> 0
@@ -464,18 +467,39 @@ internal fun parseUserProfile(root: JsonElement): UserProfile? {
     val now = System.currentTimeMillis() / 1000
     val memberships = all.mapNotNull { (path, item) ->
         val rawStatuses = item.values(*membershipStatusKeys).mapNotNull(::membershipBoolean)
-        val rawTypes = item.values(*membershipTypeKeys).mapNotNull { it.toIntOrNull() }
-        val superFlag = item.values("isSVip", "is_svip", "isSvip", "svip", "HugeVip", "svipFlag", "svip_flag", "svip_status")
-            .mapNotNull(::membershipBoolean).any { it }
+        val typeValues = item.values(*membershipTypeKeys)
+        val rawTypes = typeValues.mapNotNull { it.toIntOrNull() }
+        val typeLabel = typeValues.filter { it.toIntOrNull() == null }.joinToString(" ")
+        // vip_login_base.svip is also 1 for a verified Green Diamond-only
+        // account. When identity is present it is a legacy wrapper flag, not
+        // proof of Super membership; use the product flags inside identity.
+        val superKeys = if (item["identity"] is JsonObject || path.endsWith("vip_response")) {
+            arrayOf("isSVip", "is_svip", "isSvip", "svipFlag", "svip_flag", "svip_status")
+        } else {
+            arrayOf("isSVip", "is_svip", "isSvip", "svip", "svipFlag", "svip_flag", "svip_status")
+        }
+        val superStatuses = item.values(*superKeys).mapNotNull(::membershipBoolean)
+        val superFlag = superStatuses.takeIf { it.isNotEmpty() }?.any { it }
         val labelRaw = item.value("vipName", "vip_name", "vipLevelName", "levelName", "svipName", "name", "title").orEmpty()
         val pathAndLabel = "$path $labelRaw"
         val expiry = item.values(*membershipExpiryKeys).mapNotNull(::profileEpoch).maxOrNull()
+            ?: if (superFlag == true) {
+                // vip_login_base can expose SVIP with the active bundled
+                // luxury product's end date in identity, without a separate
+                // SVIP expiry. Preserve that server-provided date as fallback.
+                (item["identity"] as? JsonObject)?.takeIf {
+                    it.values("HugeVip").mapNotNull(::membershipBoolean).any { active -> active }
+                }?.values("HugeVipEnd")?.mapNotNull(::profileEpoch)?.maxOrNull()
+            } else null
         val typeCode = rawTypes.maxOrNull()
-        val rank = rankForMembership(path, labelRaw, typeCode, superFlag)
+        val musicVipActive = item.values("vip", "isVip", "is_vip", "iVipFlag", "vipFlag", "vip_flag")
+            .mapNotNull(::membershipBoolean).any { it }
+        val rank = maxOf(rankForMembership(path, "$labelRaw $typeLabel", typeCode, superFlag), if (musicVipActive) 2 else 0)
         val label = when {
             pathAndLabel.contains("听书", true) || pathAndLabel.contains("book", true) -> "听书会员"
             rank >= 3 -> "超级会员（SVIP）"
             pathAndLabel.contains("绿钻", true) || pathAndLabel.contains("green", true) || pathAndLabel.contains("luxury", true) || rank == 2 -> "豪华绿钻"
+            superFlag == false && (labelRaw.contains("超级") || labelRaw.contains("SVIP", true)) -> "QQ 音乐会员"
             labelRaw.contains("会员") || labelRaw.contains("vip", true) -> labelRaw
             else -> ""
         }
@@ -494,21 +518,48 @@ internal fun parseUserProfile(root: JsonElement): UserProfile? {
                 rawTypes.isNotEmpty() -> false
                 else -> null
             }
-            MembershipEvidence(enabled, expiry, label, membershipTypeFrom(rank, path, label), rank)
+            MembershipEvidence(enabled, expiry, label, membershipTypeFrom(rank, label), rank)
         }
     }
-    val active = memberships.filter { evidence ->
+    val productMemberships = all.flatMap { (path, item) ->
+        val pathParts = path.lowercase().replace('[', '.').replace(']', '.').split('.')
+        if (pathParts.any { it in setOf("song", "track", "songinfo", "trackinfo", "songlist", "searchsong") }) {
+            emptyList()
+        } else {
+            // QQ Music's own myservice page uses HugeVip for cjhy (SVIP),
+            // iSuperVip for luxury Green Diamond and LMFlag for audio books.
+            // The Open SDK's isSuperGreenVIP is a distinct Green Diamond field.
+            listOf(
+                MembershipProduct(arrayOf("HugeVip"), arrayOf("HugeVipEnd"), "超级会员（SVIP）", "svip", 3),
+                MembershipProduct(arrayOf("iSuperVip", "isSuperGreenVIP", "is_super_green_vip", "super_green_vip"), arrayOf("superEndTime", "superGreenvipEndTime", "super_green_vip_end_time"), "豪华绿钻", "green_diamond", 2),
+                MembershipProduct(arrayOf("isGreenVIP", "is_green_vip", "green_vip"), arrayOf("greenvipEndTime", "green_vip_end_time"), "绿钻", "green_diamond", 2),
+                MembershipProduct(arrayOf("LMFlag"), arrayOf("LMEnd"), "听书会员", "vip", 1),
+            ).mapNotNull { product ->
+                val statuses = item.values(*product.flags).mapNotNull(::membershipBoolean)
+                val expiry = item.values(*product.expiries).mapNotNull(::profileEpoch).maxOrNull()
+                    ?: if (product.rank == 2 && statuses.any { it }) item.values("overdate", "overDate", "over_date", "vipOverDate", "vip_overdate")
+                        .mapNotNull(::profileEpoch).maxOrNull() else null
+                if (statuses.isEmpty() && expiry == null) null else MembershipEvidence(
+                    statuses.takeIf { it.isNotEmpty() }?.any { it }, expiry, product.label, product.type, product.rank,
+                )
+            }
+        }
+    }
+    val evidence = memberships + productMemberships
+    val membershipOrder = compareBy<MembershipEvidence> { it.rank }
+        .thenBy { if (it.label == "豪华绿钻") 1 else 0 }.thenBy { it.expiry ?: 0L }
+    val active = evidence.filter { evidence ->
         when {
             evidence.enabled == true -> evidence.expiry == null || evidence.expiry > now
             evidence.enabled == false -> false
             else -> evidence.expiry?.let { it > now } == true
         }
-    }.maxWithOrNull(compareBy<MembershipEvidence> { it.rank }.thenBy { it.expiry ?: 0L })
-    val known = memberships.maxWithOrNull(compareBy<MembershipEvidence> { it.rank }.thenBy { it.expiry ?: 0L })
-    val expire = active?.expiry ?: memberships.mapNotNull(MembershipEvidence::expiry).maxOrNull()
+    }.maxWithOrNull(membershipOrder)
+    val known = evidence.maxWithOrNull(membershipOrder)
+    val expire = if (active != null) active.expiry else known?.expiry
     val isVip = when {
         active != null -> true
-        memberships.isNotEmpty() -> false
+        evidence.isNotEmpty() -> false
         else -> null
     }
     val chosen = active ?: known
@@ -578,7 +629,7 @@ internal fun profileEpoch(value: String): Long? {
         "yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ss",
         "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss",
         "yyyy/MM/dd HH:mm:ss.SSS", "yyyy/MM/dd HH:mm:ss",
-        "yyyy-MM-dd", "yyyy/MM/dd",
+        "yyyy-MM-dd", "yyyy/MM/dd", "yyyy.MM.dd",
     ).firstNotNullOfOrNull { pattern -> parse(pattern, normalizedFraction) }?.let { return it }
     return null
 }
@@ -906,6 +957,11 @@ class ApiClient(
     suspend fun stream(track: Track, quality: String): StreamData =
         stream(track, quality, allowCredentialRecovery = true, allowCached = true)
 
+    suspend fun playbackStream(track: Track, quality: String, refresh: Boolean = false): StreamData =
+        resolvePlaybackStream(quality) { requested ->
+            if (refresh) refreshStream(track, requested) else stream(track, requested)
+        }
+
     fun invalidateStream(trackId: String) {
         val account = accountId()
         val scopeKey = "$account:$trackId"
@@ -984,6 +1040,7 @@ class ApiClient(
                     val url = resolveQqStreamUrl(path.value, bases)
                     if (url.isBlank()) error("音乐服务器返回了不受信任的播放地址")
                     val actual = inferQqStreamQuality(path.value, path.sourceKey)
+                    if (actual == QUALITY_LEGACY_UNKNOWN) return@attempt
                     val stream = StreamData(url, actual, System.currentTimeMillis() + data.long("expiration", 3600) * 1000)
                     AppLog.write("STREAM", "issued requested=$requested actual=$actual via=$module")
                     bestFallback = higherQualityStream(bestFallback, stream)

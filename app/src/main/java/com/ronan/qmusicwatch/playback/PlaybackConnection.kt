@@ -16,6 +16,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.ronan.qmusicwatch.data.AppLog
+import com.ronan.qmusicwatch.model.StreamData
 import com.ronan.qmusicwatch.network.safeLocalOrArtworkUri
 import com.ronan.qmusicwatch.network.safeLocalOrQqMediaUri
 import kotlin.math.roundToInt
@@ -60,12 +61,27 @@ class PlaybackConnection(context: Context) {
     val deviceVolume = _deviceVolume.asStateFlow()
     var onError: ((PlaybackErrorEvent) -> Unit)? = null
     var onMediaItemChanged: ((String, String) -> Unit)? = null
+    var onNetworkQualityChanged: ((String, StreamData) -> Unit)? = null
+    private val _buffering = MutableStateFlow(false)
+    val buffering = _buffering.asStateFlow()
+    private var awaitingPlaybackMediaId: String? = null
     init {
         publishSystemVolume()
         future.addListener({
             controllerOrNull()?.let { controller ->
                 publishControllerVolume(controller)
+                publishBuffering(controller)
                 controller.addListener(object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    publishBuffering(player)
+                }
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST &&
+                        controller.currentMediaItem?.mediaId == awaitingPlaybackMediaId) {
+                        awaitingPlaybackMediaId = null
+                    }
+                    publishBuffering(controller)
+                }
                 override fun onPlayerError(error: PlaybackException) {
                     val causes = generateSequence<Throwable>(error) { it.cause }.joinToString(" <- ") { "${it.javaClass.simpleName}:${it.message.orEmpty()}" }
                     AppLog.write("PLAYER", "${error.errorCodeName} $causes")
@@ -93,6 +109,21 @@ class PlaybackConnection(context: Context) {
             .onFailure { AppLog.write("PLAYER", "controller ${it.javaClass.simpleName}:${it.message.orEmpty()}") }
             .getOrNull()
 
+    private fun publishBuffering(player: Player) {
+        if (player.currentMediaItem?.mediaId == awaitingPlaybackMediaId &&
+            (player.isPlaying || player.playerError != null || player.playbackState == Player.STATE_ENDED)) {
+            awaitingPlaybackMediaId = null
+        }
+        _buffering.value = awaitingPlaybackMediaId != null ||
+            (player.playerError == null && player.playWhenReady && !player.isPlaying &&
+                player.playbackState in setOf(Player.STATE_BUFFERING, Player.STATE_READY))
+    }
+
+    fun expectPlaybackStart(mediaId: String) {
+        awaitingPlaybackMediaId = mediaId
+        _buffering.value = true
+    }
+
     private fun withController(action: (MediaController) -> Unit) {
         val run = { controllerOrNull()?.let { controller -> runCatching { action(controller) }.onFailure { AppLog.write("PLAYER", "action ${it.javaClass.simpleName}:${it.message.orEmpty()}") } }; Unit }
         if (future.isDone) run() else future.addListener(run, mainExecutor)
@@ -107,7 +138,9 @@ class PlaybackConnection(context: Context) {
         playWhenReady: Boolean,
     ) {
         AppLog.write("PLAYER", "prepare track=$id scheme=${android.net.Uri.parse(uri).scheme.orEmpty()} start_ms=${startPositionMs.coerceAtLeast(0)}")
+        if (playWhenReady) expectPlaybackStart(id)
         withController { controller ->
+            if (playWhenReady) expectPlaybackStart(id)
             controller.apply {
                 setMediaItem(
                     playbackMediaItem(id, uri, title, artist, artwork),
@@ -118,12 +151,26 @@ class PlaybackConnection(context: Context) {
             }
         }
     }
-    fun pause() = withController(MediaController::pause)
+    fun pause() {
+        awaitingPlaybackMediaId = null
+        _buffering.value = false
+        withController(MediaController::pause)
+    }
+    fun stopForTrackChange() {
+        awaitingPlaybackMediaId = null
+        _buffering.value = false
+        withController(MediaController::stop)
+    }
     fun stopAndClear() {
+        awaitingPlaybackMediaId = null
+        _buffering.value = false
         cancelSleepTimer()
         withController { controller -> controller.stop(); controller.clearMediaItems() }
     }
-    fun resume() = withController(MediaController::play)
+    fun resume() = withController { controller ->
+        if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+        controller.play()
+    }
     fun seek(positionMs: Long) = withController { it.seekTo(positionMs) }
     fun position() = controllerOrNull()?.currentPosition?.coerceAtLeast(0) ?: 0L
     fun duration() = controllerOrNull()?.duration?.coerceAtLeast(0) ?: 0L

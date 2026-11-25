@@ -50,6 +50,7 @@ data class AppUiState(
     val searchQuery: String = "", val searchCursor: String? = null, val searchLoading: Boolean = false,
     val qrStatus: String = "", val qrImageBase64: String = "", val qrMimeType: String = "", val qrExpiresAt: Long = 0,
     val currentTrack: Track? = null, val activeStreamQuality: String = QUALITY_STANDARD,
+    val pendingPlaybackTrack: Track? = null,
     val lyrics: List<LyricLine> = emptyList(), val pendingSpeakerTrack: Track? = null, val playbackLoading: Boolean = false,
     val lyricsLoading: Boolean = false, val lyricsError: String? = null,
     val detail: CollectionDetail? = null, val detailDirectoryId: String? = null,
@@ -61,7 +62,6 @@ data class AppUiState(
     val announcements: List<ControlAnnouncement> = emptyList(),
     val controlFetchedAt: Long = 0, val controlRefreshing: Boolean = false, val controlError: String? = null,
     val updateState: UpdateUiState = UpdateUiState.Idle,
-    val diagnosticUploadState: DiagnosticUploadState = DiagnosticUploadState.Idle,
     val queueImportTitle: String = "", val queueImportTracks: List<Track> = emptyList(), val queueImportLoading: Boolean = false,
 )
 
@@ -110,7 +110,9 @@ internal fun profileCacheNeedsRefresh(cache: CachedUserProfile?, accountId: Stri
     val profile = cache?.profile?.let(::normalizeUserProfile)
     val expiry = normalizeEpochSeconds(profile?.vipExpireAt)
     val expiredMembership = profile?.isVip != false && expiry?.let { it <= now / 1_000L } == true
-    return cache == null || cache.accountId != accountId || expiredMembership
+    val stale = cache != null && (now - cache.updatedAt !in 0..(15 * 60_000L))
+    return cache == null || cache.accountId != accountId || expiredMembership || stale ||
+        cache.membershipSchemaVersion != MEMBERSHIP_PROFILE_SCHEMA_VERSION
 }
 
 internal fun upsertAccountSnapshot(cache: CachedAccountSnapshots, value: CachedAccountSnapshot): CachedAccountSnapshots =
@@ -144,11 +146,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val graph = application as QMusicApplication
     private val _state = MutableStateFlow(AppUiState())
     val state = _state.asStateFlow()
+    val playbackLoading = combine(state.map { it.playbackLoading }, graph.playback.buffering) { resolving, buffering ->
+        resolving || buffering
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val chromeState = state.map {
         AppChromeUiState(
             message = it.message,
             playEvent = it.playEvent,
-            currentTrack = it.currentTrack,
+            currentTrack = it.pendingPlaybackTrack ?: it.currentTrack,
             pendingSpeakerTrack = it.pendingSpeakerTrack,
             announcements = it.announcements,
             updateState = it.updateState,
@@ -247,6 +252,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     init {
         graph.playback.onError = ::handlePlaybackError
         graph.playback.onMediaItemChanged = ::handleMediaItemChanged
+        graph.playback.onNetworkQualityChanged = { mediaId, stream ->
+            if (_state.value.currentTrack?.id == mediaId && graph.playback.currentUri() == stream.url) {
+                lastStreamUrl = stream.url
+                lastStreamExpiresAt = stream.expiresAt
+                lastStreamQuality = stream.quality
+                _state.update { it.copy(activeStreamQuality = stream.quality) }
+            }
+        }
         val restoreGeneration = sessionGeneration
         sessionRestoreJob = viewModelScope.launch(Dispatchers.IO) {
             val startedAt = android.os.SystemClock.elapsedRealtime()
@@ -317,7 +330,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         runCatching { json.decodeFromString<CachedUserProfile>(rawProfile) }
                             .getOrNull()?.let(::normalizeCachedUserProfile)
                     }
-                    cached?.takeIf { it.accountId == accountId && generation == sessionGeneration }?.let { _state.update { state -> state.copy(profile = it.profile, profileLoaded = true, profileError = null) } }
+                    cached?.takeIf { it.accountId == accountId && generation == sessionGeneration }?.let { cache ->
+                        val currentSchema = cache.membershipSchemaVersion == MEMBERSHIP_PROFILE_SCHEMA_VERSION
+                        val profile = if (currentSchema) cache.profile else cache.profile.copy(
+                            isVip = null, vipExpireAt = null, vipName = "", vipType = "", vipLevel = 0, qualityEntitlements = emptyList(),
+                        )
+                        _state.update { it.copy(profile = profile, profileLoaded = currentSchema, profileError = null) }
+                    }
                     refresh = profileCacheNeedsRefresh(cached, accountId, System.currentTimeMillis())
                 }
             } finally { profileCacheReady.complete(Unit) }
@@ -365,10 +384,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun failPlayback(error: Throwable) {
         val failure = classifyPlaybackFailure(error)
         AppLog.write("PLAYBACK", "type=${failure.type} ${error.javaClass.simpleName}:${error.message.orEmpty()}")
-        _state.update { it.copy(loading = false, playbackLoading = false, message = failure.message) }
+        _state.update { it.copy(loading = false, playbackLoading = false, pendingPlaybackTrack = null, message = failure.message) }
     }
 
     private fun handlePlaybackError(event: PlaybackErrorEvent) {
+        if (_state.value.pendingPlaybackTrack != null && playJob?.isActive == true) return
         val track = _state.value.currentTrack
         val failure = classifyPlaybackFailure(event.error)
         val currentMatches = track != null && track.id == event.mediaId
@@ -380,7 +400,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             failure.message
         }
-        _state.update { it.copy(playbackLoading = false, message = message) }
+        _state.update { it.copy(playbackLoading = serviceWillRecover, message = message) }
         if (serviceWillRecover) {
             recoveryNoticeJob = viewModelScope.launch {
                 delay(PLAYBACK_RECOVERY_NOTICE_TIMEOUT_MS)
@@ -389,12 +409,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ) return@launch
                 awaitingServiceRecoveryMediaId = null
                 recoveryNoticeJob = null
-                if (graph.playback.isPlaying()) return@launch
+                if (graph.playback.isPlaying()) {
+                    _state.update { it.copy(playbackLoading = false) }
+                    return@launch
+                }
                 _state.update {
                     if (it.message?.contains("自动恢复") == true) {
-                        it.copy(message = "自动恢复未成功，请检查网络后重试")
+                        it.copy(playbackLoading = false, message = "自动恢复未成功，请检查网络后重试")
                     } else {
-                        it
+                        it.copy(playbackLoading = false)
                     }
                 }
             }
@@ -443,6 +466,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(
                         activeStreamQuality = lastStreamQuality,
+                        playbackLoading = if (recovered) false else it.playbackLoading,
                         message = if (recovered) "播放已自动恢复" else it.message,
                     )
                 }
@@ -604,7 +628,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { s -> s.copy(
                 home = null, library = null, libraryLoading = false, libraryError = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
                 detail = null, detailDirectoryId = null, offlineSnapshot = false,
-                currentTrack = null, lyrics = emptyList(), lyricsLoading = false, lyricsError = null,
+                currentTrack = null, pendingPlaybackTrack = null, lyrics = emptyList(), lyricsLoading = false, lyricsError = null,
                 activeStreamQuality = QUALITY_STANDARD, playbackLoading = false, pendingSpeakerTrack = null,
                 queueImportTitle = "", queueImportTracks = emptyList(), queueImportLoading = false, searchLoading = false,
                 qrStatus = "登录成功", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0, message = "登录成功",
@@ -638,7 +662,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(
             home = null, library = null, libraryLoading = false, libraryError = null, recent = emptyList(), recentLoaded = false, profile = null, profileLoaded = false, profileError = null,
             searchTracks = emptyList(), searchCollections = emptyList(), searchCursor = null, searchLoading = false,
-            currentTrack = null, lyrics = emptyList(), lyricsLoading = false, lyricsError = null, pendingSpeakerTrack = null, detail = null, detailDirectoryId = null,
+            currentTrack = null, pendingPlaybackTrack = null, playbackLoading = false, lyrics = emptyList(), lyricsLoading = false, lyricsError = null, pendingSpeakerTrack = null, detail = null, detailDirectoryId = null,
             queueImportTitle = "", queueImportTracks = emptyList(), queueImportLoading = false,
             qrStatus = "", qrImageBase64 = "", qrMimeType = "", qrExpiresAt = 0,
             offlineSnapshot = false, message = "已退出，离线文件已保留并锁定",
@@ -756,7 +780,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val profile = normalizeUserProfile(rawProfile)
                 _state.update { it.copy(profile = profile, profileLoaded = true, profileError = null) }
                 reportReadPerformance("profile", "complete", started)
-                graph.settings.setProfileCache(json.encodeToString(CachedUserProfile(accountId.orEmpty(), profile, System.currentTimeMillis())))
+                graph.settings.setProfileCache(json.encodeToString(CachedUserProfile(accountId.orEmpty(), profile, System.currentTimeMillis(), MEMBERSHIP_PROFILE_SCHEMA_VERSION)))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Throwable) {
                 if (generation != sessionGeneration || request != profileReadGeneration) return@launch
@@ -810,7 +834,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun clearSearchHistory() = viewModelScope.launch { graph.settings.clearSearchHistory() }
     fun featureEnabled(name: String): Boolean = _state.value.controlConfig.featureEnabled(name)
-    fun featureMessage(name: String): String = _state.value.controlConfig.messages[name].orEmpty()
+    fun featureMessage(name: String): String = safeControlMessage(_state.value.controlConfig.messages[name].orEmpty())
 
     private suspend fun restoreControlPlaneAndRefresh() {
         val raw = graph.settings.controlPlaneCache.first()
@@ -957,31 +981,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun submitDiagnostics() = viewModelScope.launch {
-        if (!featureEnabled("diagnostics")) return@launch _state.update { it.copy(message = featureMessage("diagnostics").ifBlank { "诊断提交暂不可用" }) }
-        _state.update { it.copy(diagnosticUploadState = DiagnosticUploadState.Uploading) }
-        val logExcerpt = withContext(Dispatchers.IO) { AppLog.diagnosticExcerpt() }
-        val payload = DiagnosticUpload(
-            version = BuildConfig.VERSION_NAME, versionCode = BuildConfig.VERSION_CODE,
-            sdk = android.os.Build.VERSION.SDK_INT,
-            manufacturer = android.os.Build.MANUFACTURER.orEmpty().replace('\n', ' ').take(40),
-            model = android.os.Build.MODEL.orEmpty().replace('\n', ' ').take(60),
-            report = buildString {
-                append("QMusic-CircleWatch diagnostics\n")
-                append("version=${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n")
-                append("sdk=${android.os.Build.VERSION.SDK_INT}\n")
-                append("signedIn=${signedIn}\n")
-                append("networkControl=${redactDiagnosticMessage(_state.value.controlError ?: "ok")}\n\n")
-                append(logExcerpt)
-            }.take(58_000),
-        )
-        runCatching { graph.controlPlane.uploadDiagnostics(payload) }
-            .onSuccess { receipt -> _state.update { it.copy(diagnosticUploadState = DiagnosticUploadState.Success(receipt.requestId), message = "诊断已提交") } }
-            .onFailure { error -> _state.update { it.copy(diagnosticUploadState = DiagnosticUploadState.Error(error.message ?: "诊断提交失败")) } }
-    }
-
-    fun resetDiagnosticUpload() = _state.update { it.copy(diagnosticUploadState = DiagnosticUploadState.Idle) }
-
     fun prepareUpdateInstall(release: ControlUpdate, filePath: String, onReady: (File) -> Unit) = viewModelScope.launch {
         val file = File(filePath)
         _state.update { it.copy(updateState = UpdateUiState.Verifying(release)) }
@@ -1006,7 +1005,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         pendingSkipTrackId = track.id.takeIf { skipping }
         playJob = viewModelScope.launch {
             sessionReady.await()
-            _state.update { it.copy(playbackLoading = true, message = null) }
+            _state.update { it.copy(playbackLoading = true, pendingPlaybackTrack = null, message = null) }
             if (!track.playable && !track.requiresVip) return@launch failPlayback(IllegalStateException("这首歌曲当前不可播放"))
             // Read the persisted snapshot for this play request. The previous
             // lazy compatibility flow could remain at its default `true`, causing
@@ -1020,12 +1019,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             val owner = accountId ?: return@launch failPlayback(IllegalStateException("请先登录后播放"))
             val requestedQuality = playbackSettings.quality
+            graph.playback.stopForTrackChange()
+            _state.update { it.copy(pendingPlaybackTrack = track, playEvent = System.nanoTime()) }
             runCatching {
                 val local = graph.db.downloads().find(track.id, owner)?.takeIf { it.status == "complete" && File(it.filePath).exists() }
                 if (local == null && !featureEnabled("stream")) error(featureMessage("stream").ifBlank { "在线播放暂时维护，仍可播放已缓存歌曲" })
                 val stream = if (local == null) {
-                    if (forceFreshStream) graph.api.refreshStream(track, requestedQuality)
-                    else graph.api.stream(track, requestedQuality)
+                    graph.api.playbackStream(track, requestedQuality, refresh = forceFreshStream)
                 } else null
                 val uri = local?.let { android.net.Uri.fromFile(File(it.filePath)).toString() } ?: stream!!.url
                 val cover = local?.let { cachedArtworkFile(it.filePath).takeIf(File::exists) }
@@ -1055,12 +1055,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _state.update {
                         it.copy(
                             currentTrack = resolvedTrack,
+                            pendingPlaybackTrack = null,
                             activeStreamQuality = reportedQualityId(issuedQuality),
                             lyrics = emptyList(),
                             pendingSpeakerTrack = null,
                             playbackLoading = false,
-                            playEvent = System.nanoTime(),
-                            message = qualityFallbackMessage(requestedQuality, issuedQuality, track, it.profile),
+                            message = if (stream?.networkFallback == true) networkQualityMessage(issuedQuality)
+                                else qualityFallbackMessage(requestedQuality, issuedQuality, track, it.profile),
                         )
                     }
                     graph.playback.replaceStream(track.id, uri, track.title, track.artists.joinToString(" / "),
@@ -1268,7 +1269,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 // List metadata can omit higher tiers. Let the official stream
                 // response validate the selected default, just as on next play.
-                val stream = graph.api.stream(track, requested)
+                val stream = graph.api.playbackStream(track, requested)
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (_state.value.currentTrack?.id != track.id || graph.playback.currentMediaId() != track.id) return@launch
                 val position = graph.playback.position()
@@ -1289,7 +1290,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update {
                     it.copy(
                         activeStreamQuality = normalizeQualityId(stream.quality),
-                        message = qualityFallbackMessage(requested, stream.quality, track, profile)
+                        message = (if (stream.networkFallback) networkQualityMessage(stream.quality)
+                            else qualityFallbackMessage(requested, stream.quality, track, profile))
                             ?: "已切换到${qualityLabel(stream.quality)}",
                     )
                 }
@@ -1490,6 +1492,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         clearServiceRecovery()
         graph.playback.onError = null
         graph.playback.onMediaItemChanged = null
+        graph.playback.onNetworkQualityChanged = null
         super.onCleared()
     }
 }

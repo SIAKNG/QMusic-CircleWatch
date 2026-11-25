@@ -214,7 +214,12 @@ private fun ExpressivePlayPauseButton(
     val shape = remember(playing) { ExpressiveScallopShape(playing, morphProgress) }
     val haptics = LocalHapticFeedback.current
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
-        ExpressiveWavyProgress(
+        if (loading) CircularProgressIndicator(
+            modifier = Modifier.fillMaxSize(),
+            color = WatchTextPrimary,
+            strokeWidth = 2.dp,
+            trackColor = accent.copy(alpha = .2f),
+        ) else ExpressiveWavyProgress(
             progress = progress,
             playing = playing,
             morphProgress = morphProgress,
@@ -241,19 +246,11 @@ private fun ExpressivePlayPauseButton(
             contentColor = Color(0xFF24143C),
         ) {
             Box(Modifier.fillMaxSize().graphicsLayer { rotationZ = -rotation.value * 360f }, contentAlignment = Alignment.Center) {
-                if (loading) {
-                    CircularProgressIndicator(
-                        Modifier.size(22.dp),
-                        color = Color(0xFF24143C),
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Icon(
-                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (playing) "暂停" else "播放",
-                        Modifier.size(27.dp),
-                    )
-                }
+                Icon(
+                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    if (playing) "暂停" else "播放",
+                    Modifier.size(27.dp),
+                )
             }
         }
     }
