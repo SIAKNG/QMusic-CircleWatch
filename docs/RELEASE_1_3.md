@@ -1,6 +1,6 @@
 # QMusic-CircleWatch 1.3
 
-日期：2026-11-25 · 状态：发布草稿，待审阅
+发布日期：2026-11-25
 
 **从 1.2 起，后续安装包默认支持 OPPO 原厂媒体控制。此版无法与手表官方 QQ 音乐共存，安装前需卸载官方版。** 本项目旧版本可直接覆盖更新，包名和签名保持一致。卸载官方版会清除其本地登录和下载数据。
 
@@ -21,4 +21,9 @@
 - 如果系统只提示「未安装应用」，请参考 [安装排查](INSTALL_TROUBLESHOOTING.md) 获取具体错误码；签名兼容调整不能保证解决所有安装失败原因。
 - 本版调整通过自动回归和发布构建校验。本次已在 OWW251 覆盖安装并核对音质菜单、禁用发送入口及播放加载状态；不将受控网络测试等同所有真实弱网情况。
 - 不包含签名私钥、真实账号资料、设备原始日志、腾讯官方 APK 或邮件服务部署文件。
-- 这是审阅草稿，尚未发布为公众可下载版本。
+
+## 下载与工程
+
+[下载支持媒体控制版 APK](https://github.com/SIAKNG/QMusic-CircleWatch/releases/download/v1.3/QMusic-CircleWatch-1.3.apk) · [完整离线包（内含中文名称安装包）](https://github.com/SIAKNG/QMusic-CircleWatch/releases/download/v1.3/QMusic-CircleWatch-1.3-Package.zip) · [完整工程源码](https://github.com/SIAKNG/QMusic-CircleWatch/releases/download/v1.3/QMusic-CircleWatch-1.3-Source.zip)
+
+已通过 309 项自动测试、Lint（0 错误、69 项警告）、Release 构建及 v1/v2/v3 签名校验。
